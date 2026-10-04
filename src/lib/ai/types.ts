@@ -48,6 +48,7 @@ export interface MoveDecision {
   confidence: number;
   abstained: boolean;
   latencyMs: number;
+  raw?: unknown;
 }
 
 export interface DecisionAgent {
