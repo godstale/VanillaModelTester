@@ -12,10 +12,15 @@ describe('translate', () => {
 
   it('falls back to ko when the en table lacks the key', () => {
     const en = getDictionary('en') as Record<string, string>;
-    delete en['collections.newItem'];
-    expect(translate('en', 'collections.newItem')).toBe(
-      getDictionary('ko')['collections.newItem'],
-    );
+    const saved = en['editor.meta'];
+    delete en['editor.meta'];
+    try {
+      expect(translate('en', 'editor.meta')).toBe(
+        getDictionary('ko')['editor.meta'],
+      );
+    } finally {
+      en['editor.meta'] = saved;
+    }
   });
 
   it('returns the key itself when missing everywhere', () => {
@@ -23,7 +28,9 @@ describe('translate', () => {
   });
 
   it('replaces {param} placeholders', () => {
-    expect(translate('ko', 'collections.items', { count: 3 })).toBe('3개 항목');
+    expect(translate('ko', 'editor.meta', { lines: 3, chars: 42 })).toBe(
+      '3줄 · 42자',
+    );
     expect(translate('en', 'editor.meta', { lines: 10, chars: 99 })).toBe(
       '10 lines · 99 chars',
     );

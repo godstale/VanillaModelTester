@@ -1,7 +1,4 @@
-import { designKo } from './design';
-
 const ko = {
-  ...designKo,
   'languageSelect.title': '언어 선택',
   'languageSelect.description': '앱에서 사용할 언어를 선택하세요.',
   'languageSelect.koLabel': '한국어',
@@ -9,8 +6,6 @@ const ko = {
   'languageSelect.confirm': '확인',
 
   'activityBar.explorer': '파일 탐색기',
-  'activityBar.collections': '컬렉션',
-  'activityBar.extensions': '확장',
   'activityBar.needFolder': '(폴더를 먼저 여세요)',
   'activityBar.settings': '설정',
   'activityBar.settingsNeedFolder': '폴더를 열어야 설정할 수 있습니다',
@@ -26,8 +21,6 @@ const ko = {
   'topMenu.maximize': '최대화/복원',
   'topMenu.close': '닫기',
   'topMenu.selectFolderFirst': '먼저 폴더를 여세요',
-  'topMenu.newItem': '새 항목',
-  'topMenu.newItemHint': '컬렉션에 새 항목을 만듭니다',
 
   'fileTree.title': '탐색기',
   'fileTree.loading': '불러오는 중…',
@@ -113,7 +106,6 @@ const ko = {
   'settings.back': '뒤로',
   'settings.footer': '템플릿 v0.1.0',
   'settings.general': '일반',
-  'settings.app': '앱',
 
   'settingsGeneral.title': '일반',
   'settingsGeneral.desc': '테마와 언어를 설정합니다.',
@@ -124,18 +116,6 @@ const ko = {
   'settingsGeneral.system': '시스템',
   'settingsGeneral.language': '언어',
   'settingsGeneral.languageDesc': '앱 전체 문구에 즉시 반영됩니다.',
-
-  'settingsApp.title': '앱',
-  'settingsApp.desc': '작업 공간 데이터와 레이아웃을 관리합니다.',
-  'settingsApp.storage': '저장소',
-  'settingsApp.storageDesc':
-    '프로젝트 데이터는 폴더 안 .app-data/app.db에, 공통 설정은 전역 DB에 저장됩니다.',
-  'settingsApp.resetLayout': '레이아웃 초기화',
-  'settingsApp.resetLayoutDesc': '열린 탭과 분할 상태를 모두 닫습니다.',
-  'settingsApp.resetLayoutDone': '레이아웃을 초기화했습니다.',
-  'settingsApp.clearRecent': '최근 폴더 지우기',
-  'settingsApp.clearRecentDesc': '최근에 연 폴더 목록을 비웁니다.',
-  'settingsApp.clearRecentDone': '최근 폴더 목록을 비웠습니다.',
 
   'errorBoundary.title': '문제가 발생했습니다',
   'errorBoundary.desc':
@@ -173,46 +153,6 @@ const ko = {
   'shortcuts.closeTab': '현재 탭 닫기',
   'shortcuts.settings': '설정 열기',
   'shortcuts.sidebar': '사이드바 토글',
-
-  'collections.title': '컬렉션',
-  'collections.newItem': '새 항목',
-  'collections.untitled': '제목 없음',
-  'collections.empty': '항목이 없습니다',
-  'collections.emptyHint': '새 항목을 만들어 탭에서 편집하세요.',
-  'collections.rename': '이름 바꾸기',
-  'collections.delete': '삭제',
-  'collections.deleteTitle': '항목을 삭제할까요?',
-  'collections.deleteDesc': '삭제한 항목은 복구할 수 없습니다.',
-  'collections.confirmDelete': '삭제',
-  'collections.cancel': '취소',
-  'collections.items': '{count}개 항목',
-
-  'collectionEditor.loading': '불러오는 중…',
-  'collectionEditor.notFound': '항목을 찾을 수 없습니다.',
-  'collectionEditor.titleLabel': '제목',
-  'collectionEditor.titlePlaceholder': '제목을 입력하세요',
-  'collectionEditor.bodyLabel': '내용',
-  'collectionEditor.saving': '저장 중…',
-  'collectionEditor.saved': '저장됨',
-  'collectionEditor.saveFailed': '저장 실패',
-
-  'extensions.title': '확장',
-  'extensions.empty': '확장이 없습니다',
-  'extensions.emptyHint':
-    '폴더 안 .extensions/<이름>/extension.json을 만들면 여기에 표시됩니다.',
-  'extensions.enable': '켬',
-  'extensions.disable': '끔',
-  'extensions.enabled': '{count}개 사용 중',
-  'extensions.disabled': '사용 안 함',
-  'extensions.viewDetails': '자세히 보기',
-  'extensions.version': 'v{version}',
-  'extensions.noReadme': 'README가 없습니다',
-
-  'extensionViewer.loading': '불러오는 중…',
-  'extensionViewer.notFound': '확장을 찾을 수 없습니다.',
-  'extensionViewer.readme': '소개',
-  'extensionViewer.manifest': '매니페스트',
-  'extensionViewer.status': '상태',
 };
 
 export type Dict = typeof ko;

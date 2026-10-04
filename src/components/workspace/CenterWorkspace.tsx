@@ -2,9 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FileCode,
-  FileText,
   Image as ImageIcon,
-  Puzzle,
   Compass,
   X,
   Plus,
@@ -19,8 +17,6 @@ import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import type { WorkspaceTab, WorkspaceTabType } from '@/lib/types/workspaceTab';
 import { EditorTab } from '@/components/workspace/EditorTab';
 import { ImageViewerTab } from '@/components/workspace/ImageViewerTab';
-import { CollectionEditorTab } from '@/components/workspace/CollectionEditorTab';
-import { ExtensionViewerTab } from '@/components/workspace/ExtensionViewerTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -31,8 +27,6 @@ let activeDragTabId: string | null = null;
 const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
   editor: FileCode,
   'image-viewer': ImageIcon,
-  'collection-editor': FileText,
-  'extension-viewer': Puzzle,
   welcome: Compass,
 };
 
@@ -42,10 +36,6 @@ function renderTabContent(tab: WorkspaceTab) {
       return <EditorTab tab={tab} />;
     case 'image-viewer':
       return <ImageViewerTab tab={tab} />;
-    case 'collection-editor':
-      return <CollectionEditorTab tab={tab} />;
-    case 'extension-viewer':
-      return <ExtensionViewerTab tab={tab} />;
     case 'welcome':
       return <WelcomeGuide />;
     default:
