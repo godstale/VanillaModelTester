@@ -54,6 +54,8 @@ pub fn run() {
             laya_stop,
             laya_status,
             laya_logs,
+            laya_http_get,
+            laya_http_post,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
