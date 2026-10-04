@@ -1,12 +1,14 @@
 pub mod commands;
 
 use commands::fs_commands::*;
+use commands::laya_service::*;
 use commands::search_commands::*;
 use commands::shell_commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(commands::laya_service::LayaServiceState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(
@@ -48,6 +50,10 @@ pub fn run() {
             grep_files,
             find_files,
             run_shell,
+            laya_start,
+            laya_stop,
+            laya_status,
+            laya_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
