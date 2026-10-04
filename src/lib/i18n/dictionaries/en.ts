@@ -8,6 +8,8 @@ const en: Dict = {
   'languageSelect.confirm': 'Confirm',
 
   'activityBar.explorer': 'Explorer',
+  'activityBar.game': 'Tetris',
+  'activityBar.layaService': 'Laya service',
   'activityBar.needFolder': '(open a folder first)',
   'activityBar.settings': 'Settings',
   'activityBar.settingsNeedFolder': 'Open a folder to access settings',
@@ -82,9 +84,9 @@ const en: Dict = {
   'tabPlaceholder.type': 'Unknown tab',
   'tabPlaceholder.desc': 'No viewer is registered for this tab type.',
 
-  'welcome.subtitle': 'A folder-based desktop workspace.',
+  'welcome.subtitle': 'A UI environment for model testing.',
   'welcome.guide':
-    'Open a folder to browse files, edit in tabs, and split the view.',
+    'Validate agents with Tetris autoplay and check the Laya service status.',
   'welcome.openTitle': 'Open a working folder',
   'welcome.openDesc':
     'Project data and tab state are stored separately per folder.',
@@ -106,7 +108,7 @@ const en: Dict = {
 
   'settings.title': 'Settings',
   'settings.back': 'Back',
-  'settings.footer': 'Template v0.1.0',
+  'settings.footer': 'Vanilla Model Tester v0.1.0',
   'settings.general': 'General',
 
   'settingsGeneral.title': 'General',
@@ -183,6 +185,8 @@ const en: Dict = {
   'game.benchmark': 'Benchmark',
   'game.runBenchmark': 'Benchmark 100',
   'game.benchmarkRunning': 'Running benchmark…',
+  'game.benchmarkCancel': 'Cancel',
+  'game.benchmarkProgress': '{done}/{total} episodes',
   'game.laya': 'Laya',
   'game.layaUrl': 'Laya URL',
   'game.layaHint': 'Enter the laya-serve URL (e.g. http://127.0.0.1:8000)',
@@ -208,6 +212,35 @@ const en: Dict = {
   'game.noData': 'No data yet',
   'game.candidatesText': 'Candidate details',
   'game.layaOnlyHint': 'Select the Laya agent to monitor input, output, and latency here.',
+
+  'layaService.title': 'Laya Service',
+  'layaService.desc':
+    'Start and stop the laya-serve process from the app and check its status.',
+  'layaService.baseUrl': 'Laya URL',
+  'layaService.port': 'Port',
+  'layaService.start': 'Start server',
+  'layaService.stop': 'Stop server',
+  'layaService.starting': 'Starting…',
+  'layaService.refresh': 'Refresh',
+  'layaService.status': 'Status',
+  'layaService.running': 'Running',
+  'layaService.stopped': 'Stopped',
+  'layaService.managed': 'Managed by app',
+  'layaService.external': 'External process',
+  'layaService.pid': 'PID',
+  'layaService.uptime': 'Uptime',
+  'layaService.health': 'Health check',
+  'layaService.checkHealth': 'Check health',
+  'layaService.healthOk': 'Healthy',
+  'layaService.healthFail': 'No response',
+  'layaService.logs': 'Logs',
+  'layaService.logsEmpty': 'No logs yet',
+  'layaService.autoscroll': 'Auto-scroll',
+  'layaService.open': 'Open Laya service',
+  'layaService.startHint':
+    'Start runs laya-serve from the .venv-laya inside the project. If it is missing, run it from an external terminal instead.',
+  'layaService.webPreview':
+    'Server control is unavailable in web preview (needs a Tauri runtime).',
 };
 
 export default en;

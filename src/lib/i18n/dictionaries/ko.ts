@@ -6,6 +6,8 @@ const ko = {
   'languageSelect.confirm': '확인',
 
   'activityBar.explorer': '파일 탐색기',
+  'activityBar.game': '테트리스',
+  'activityBar.layaService': 'Laya 서비스',
   'activityBar.needFolder': '(폴더를 먼저 여세요)',
   'activityBar.settings': '설정',
   'activityBar.settingsNeedFolder': '폴더를 열어야 설정할 수 있습니다',
@@ -80,9 +82,9 @@ const ko = {
   'tabPlaceholder.type': '알 수 없는 탭',
   'tabPlaceholder.desc': '이 탭 종류를 표시할 뷰어가 등록되어 있지 않습니다.',
 
-  'welcome.subtitle': '폴더 기반 데스크탑 작업 공간입니다.',
+  'welcome.subtitle': '모델 테스트를 위한 UI 환경입니다.',
   'welcome.guide':
-    '폴더를 열면 파일 탐색, 탭 편집, 화면 분할을 바로 쓸 수 있습니다.',
+    '테트리스 자동 플레이로 에이전트를 검증하고, Laya 서비스 상태를 확인하세요.',
   'welcome.openTitle': '작업 폴더 열기',
   'welcome.openDesc':
     '폴더를 열면 프로젝트 DB와 탭 상태가 폴더별로 분리 저장됩니다.',
@@ -104,7 +106,7 @@ const ko = {
 
   'settings.title': '설정',
   'settings.back': '뒤로',
-  'settings.footer': '템플릿 v0.1.0',
+  'settings.footer': 'Vanilla Model Tester v0.1.0',
   'settings.general': '일반',
 
   'settingsGeneral.title': '일반',
@@ -181,6 +183,8 @@ const ko = {
   'game.benchmark': '벤치마크',
   'game.runBenchmark': '벤치마크 100',
   'game.benchmarkRunning': '벤치마크 실행 중…',
+  'game.benchmarkCancel': '중단',
+  'game.benchmarkProgress': '{done}/{total} 에피소드',
   'game.laya': '라야',
   'game.layaUrl': 'Laya URL',
   'game.layaHint': 'laya-serve 주소를 입력하세요 (예: http://127.0.0.1:8000)',
@@ -206,6 +210,35 @@ const ko = {
   'game.noData': '아직 데이터 없음',
   'game.candidatesText': '후보 상세',
   'game.layaOnlyHint': '라야 에이전트를 선택하면 입력·출력·반응 시간을 여기서 모니터링할 수 있습니다.',
+
+  'layaService.title': 'Laya 서비스',
+  'layaService.desc':
+    'laya-serve 프로세스를 앱 안에서 시작·정지하고 상태를 확인합니다.',
+  'layaService.baseUrl': 'Laya URL',
+  'layaService.port': '포트',
+  'layaService.start': '서버 시작',
+  'layaService.stop': '서버 정지',
+  'layaService.starting': '시작 중…',
+  'layaService.refresh': '새로고침',
+  'layaService.status': '상태',
+  'layaService.running': '실행 중',
+  'layaService.stopped': '정지됨',
+  'layaService.managed': '앱에서 관리 중',
+  'layaService.external': '외부 프로세스',
+  'layaService.pid': 'PID',
+  'layaService.uptime': '가동 시간',
+  'layaService.health': '헬스 체크',
+  'layaService.checkHealth': '헬스 확인',
+  'layaService.healthOk': '정상 응답',
+  'layaService.healthFail': '응답 없음',
+  'layaService.logs': '로그',
+  'layaService.logsEmpty': '아직 로그가 없습니다',
+  'layaService.autoscroll': '자동 스크롤',
+  'layaService.open': 'Laya 서비스 열기',
+  'layaService.startHint':
+    '시작을 누르면 프로젝트 안의 .venv-laya에 있는 laya-serve를 실행합니다. 없으면 외부 터미널에서 직접 실행하세요.',
+  'layaService.webPreview':
+    '웹 미리보기에서는 서버 제어를 쓸 수 없습니다(Tauri 실행 필요).',
 };
 
 export type Dict = typeof ko;

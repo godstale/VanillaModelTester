@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "VanillaTemplate",
+  "productName": "Vanilla Model Tester",
   "version": "0.1.0",
   "identifier": "com.example.workspace-template",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "VanillaTemplate",
+        "title": "Vanilla Model Tester",
         "width": 1280,
         "height": 800,
         "resizable": true,
