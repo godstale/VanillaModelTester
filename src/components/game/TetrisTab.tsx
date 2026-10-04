@@ -12,6 +12,13 @@ import {
   move,
   rotate,
 } from '@/lib/tetris/engine';
+import { Simulator } from '@/lib/sim/simulator';
+import { runHeadless } from '@/lib/sim/headless';
+import { DEFAULT_SIM_CONFIG } from '@/lib/sim/types';
+import type { EpisodeStats, HeadlessSummary } from '@/lib/sim/types';
+import { createHeuristicAgent } from '@/lib/ai/heuristicAgent';
+import { createMockAgent } from '@/lib/ai/mockAgent';
+import type { DecisionAgent } from '@/lib/ai/types';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface TetrisTabProps {
@@ -29,6 +36,21 @@ function seedFromTab(tab: WorkspaceTab): number {
   }
   return hash >>> 0;
 }
+
+function freshSeed(): number {
+  return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+}
+
+type AgentKind = 'mock' | 'heuristic';
+type AutoSpeed = '1x' | '10x' | 'max';
+
+// Agent pickers for auto mode and the benchmark runner.
+function makeLocalAgent(kind: AgentKind, seed: number): DecisionAgent {
+  return kind === 'heuristic' ? createHeuristicAgent() : createMockAgent(seed);
+}
+
+const BENCH_EPISODES = 100;
+const BENCH_BASE_SEED = 20261004;
 
 // Same canvas-hex-palette rationale as BoardCanvas: raw colors for game
 // blocks, semantic tokens for all DOM chrome.
@@ -85,25 +107,178 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const [paused, setPaused] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
+  const [mode, setMode] = useState<'manual' | 'auto'>('manual');
+  const [agentKind, setAgentKind] = useState<AgentKind>('mock');
+  const [speed, setSpeed] = useState<AutoSpeed>('1x');
+  const [autoBoard, setAutoBoard] = useState<EngineState | null>(null);
+  const [autoStats, setAutoStats] = useState<EpisodeStats | null>(null);
+  const [autoCounters, setAutoCounters] = useState({
+    steps: 0,
+    decisions: 0,
+    fallbacks: 0,
+  });
+  const [bench, setBench] = useState<HeadlessSummary | null>(null);
+  const [benchRunning, setBenchRunning] = useState(false);
+  const simRef = useRef<Simulator | null>(null);
+  const autoStartRef = useRef<number>(0);
+  const genRef = useRef<number>(0);
+  const busyRef = useRef<boolean>(false);
+
   const over = engine.status === 'over';
   const active = running && !paused && !over;
+
+  const display = mode === 'auto' ? (autoBoard ?? engine) : engine;
 
   useEffect(() => {
     wrapRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || mode !== 'manual') return;
     const id = window.setInterval(() => {
       setEngine((prev) =>
         prev.status === 'over' ? prev : gravityTick(prev).state,
       );
     }, gravityMsForLevel(engine.level));
     return () => window.clearInterval(id);
-  }, [active, engine.level]);
+  }, [active, engine.level, mode]);
+
+  // Mirrors simulator state into render state; effects drive it, render reads it.
+  const syncAutoView = (sim: Simulator) => {
+    setAutoBoard(sim.state);
+    setAutoCounters({
+      steps: sim.steps,
+      decisions: sim.decisionCount,
+      fallbacks: sim.fallbackCount,
+    });
+  };
+
+  // 1x/10x auto stepping: one stepOnce per tick, re-rendered each step.
+  useEffect(() => {
+    if (mode !== 'auto' || speed === 'max') return;
+    let cancelled = false;
+    let timer = 0;
+    const schedule = (delay: number) => {
+      timer = window.setTimeout(() => {
+        void tick();
+      }, delay);
+    };
+    const tick = async () => {
+      const sim = simRef.current;
+      if (cancelled || sim === null) return;
+      if (busyRef.current) {
+        schedule(16);
+        return;
+      }
+      busyRef.current = true;
+      try {
+        const result = await sim.stepOnce();
+        if (cancelled) return;
+        syncAutoView(sim);
+        if (result === 'ended') {
+          setAutoStats(sim.stats(Date.now() - autoStartRef.current));
+          return;
+        }
+      } finally {
+        busyRef.current = false;
+      }
+      if (cancelled) return;
+      const mult = speed === '10x' ? 10 : 1;
+      schedule(
+        Math.max(16, gravityMsForLevel(sim.state.level) / mult),
+      );
+    };
+    const first = simRef.current;
+    schedule(
+      first === null
+        ? 16
+        : Math.max(16, gravityMsForLevel(first.state.level)),
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mode, speed]);
+
+  // max auto speed: no interval, one run() then a single render.
+  useEffect(() => {
+    if (mode !== 'auto' || speed !== 'max') return;
+    const sim = simRef.current;
+    if (sim === null) return;
+    const gen = genRef.current;
+    let cancelled = false;
+    void sim.run().then((result) => {
+      if (cancelled || genRef.current !== gen) return;
+      syncAutoView(sim);
+      setAutoStats(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, speed]);
 
   const focusBoard = () => {
     wrapRef.current?.focus();
+  };
+
+  const beginAuto = (seed: number) => {
+    genRef.current += 1;
+    autoStartRef.current = Date.now();
+    const sim = new Simulator(
+      makeLocalAgent(agentKind, seed),
+      seed,
+      DEFAULT_SIM_CONFIG,
+    );
+    simRef.current = sim;
+    setAutoStats(null);
+    syncAutoView(sim);
+  };
+
+  const handleModeChange = (next: 'manual' | 'auto') => {
+    if (next === mode) return;
+    if (next === 'auto') {
+      beginAuto(freshSeed());
+    }
+    setMode(next);
+    focusBoard();
+  };
+
+  const handleAgentChange = (next: AgentKind) => {
+    setAgentKind(next);
+    if (mode === 'auto') {
+      beginAuto(freshSeed());
+    }
+    focusBoard();
+  };
+
+  const handleSpeedChange = (next: AutoSpeed) => {
+    if (next === speed) return;
+    const involvesMax = next === 'max' || speed === 'max';
+    setSpeed(next);
+    // The max runner cannot be cancelled mid-flight, so transitions
+    // involving max restart on a fresh simulator instead of sharing one.
+    if (mode === 'auto' && involvesMax) {
+      beginAuto(freshSeed());
+    }
+    focusBoard();
+  };
+
+  const handleBenchmark = async () => {
+    if (benchRunning) return;
+    setBenchRunning(true);
+    try {
+      const { summary } = await runHeadless(
+        () => makeLocalAgent('heuristic', 0),
+        {
+          episodes: BENCH_EPISODES,
+          baseSeed: BENCH_BASE_SEED,
+          maxSteps: DEFAULT_SIM_CONFIG.maxSteps,
+        },
+      );
+      setBench(summary);
+    } finally {
+      setBenchRunning(false);
+    }
   };
 
   const handleStart = () => {
@@ -130,8 +305,13 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     focusBoard();
   };
 
+  const handleAutoRestart = () => {
+    beginAuto(freshSeed());
+    focusBoard();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!active) return;
+    if (mode !== 'manual' || !active) return;
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
@@ -169,8 +349,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       className="flex h-full w-full min-h-0 select-none gap-4 overflow-auto bg-editor p-4 outline-none"
     >
       <div className="relative h-fit shrink-0">
-        <BoardCanvas board={engine.board} active={engine.active} />
-        {over && (
+        <BoardCanvas board={display.board} active={display.active} />
+        {over && mode === 'manual' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-md bg-background/80">
             <p className="text-sm font-semibold text-foreground">
               {t('game.gameover')}
@@ -187,60 +367,181 @@ export function TetrisTab({ tab }: TetrisTabProps) {
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{t('game.score')}</span>
             <span className="font-mono font-semibold text-foreground">
-              {engine.score}
+              {display.score}
             </span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{t('game.lines')}</span>
             <span className="font-mono font-semibold text-foreground">
-              {engine.lines}
+              {display.lines}
             </span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{t('game.level')}</span>
             <span className="font-mono font-semibold text-foreground">
-              {engine.level}
+              {display.level}
             </span>
           </div>
         </div>
 
         <div className="space-y-2 rounded-lg border border-border bg-card p-3">
           <span className="text-xs text-muted-foreground">{t('game.next')}</span>
-          <NextPiece kind={engine.queue[0]} />
+          <NextPiece kind={display.queue[0]} />
         </div>
 
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === 'manual' ? 'default' : 'outline'}
+            onClick={() => handleModeChange('manual')}
+          >
+            {t('game.manual')}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === 'auto' ? 'default' : 'outline'}
+            onClick={() => handleModeChange('auto')}
+          >
+            {t('game.auto')}
+          </Button>
+        </div>
+
+        {mode === 'manual' ? (
+          <div className="flex flex-col gap-2">
+            {!running ? (
+              <Button type="button" size="sm" onClick={handleStart}>
+                <Play className="h-3.5 w-3.5" />
+                {t('game.start')}
+              </Button>
+            ) : paused ? (
+              <Button type="button" size="sm" onClick={handleResume}>
+                <Play className="h-3.5 w-3.5" />
+                {t('game.resume')}
+              </Button>
+            ) : (
+              <Button type="button" size="sm" onClick={handlePause}>
+                <Pause className="h-3.5 w-3.5" />
+                {t('game.pause')}
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!running}
+              onClick={handleRestart}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t('game.restart')}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.agent')}
+              <select
+                aria-label={t('game.agent')}
+                value={agentKind}
+                onChange={(e) =>
+                  handleAgentChange(e.target.value as AgentKind)
+                }
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              >
+                <option value="mock">{t('game.mockAgent')}</option>
+                <option value="heuristic">{t('game.heuristicAgent')}</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.speed')}
+              <select
+                aria-label={t('game.speed')}
+                value={speed}
+                onChange={(e) =>
+                  handleSpeedChange(e.target.value as AutoSpeed)
+                }
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              >
+                <option value="1x">1x</option>
+                <option value="10x">10x</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+            <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {t('game.steps')}
+                </span>
+                <span className="font-mono font-semibold text-foreground">
+                  {autoCounters.steps}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {t('game.pieces')}
+                </span>
+                <span className="font-mono font-semibold text-foreground">
+                  {autoBoard?.pieces ?? 0}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {t('game.decisions')}
+                </span>
+                <span className="font-mono font-semibold text-foreground">
+                  {autoCounters.decisions}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {t('game.fallbacks')}
+                </span>
+                <span className="font-mono font-semibold text-foreground">
+                  {autoCounters.fallbacks}
+                </span>
+              </div>
+              {autoStats !== null && (
+                <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  {t('game.gameover')} · {t('game.episode')} {autoStats.ended}
+                </p>
+              )}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleAutoRestart}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t('game.restart')}
+            </Button>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
-          {!running ? (
-            <Button type="button" size="sm" onClick={handleStart}>
-              <Play className="h-3.5 w-3.5" />
-              {t('game.start')}
-            </Button>
-          ) : paused ? (
-            <Button type="button" size="sm" onClick={handleResume}>
-              <Play className="h-3.5 w-3.5" />
-              {t('game.resume')}
-            </Button>
-          ) : (
-            <Button type="button" size="sm" onClick={handlePause}>
-              <Pause className="h-3.5 w-3.5" />
-              {t('game.pause')}
-            </Button>
-          )}
           <Button
             type="button"
             size="sm"
             variant="outline"
-            disabled={!running}
-            onClick={handleRestart}
+            disabled={benchRunning}
+            onClick={() => void handleBenchmark()}
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            {t('game.restart')}
+            {benchRunning ? t('game.benchmarkRunning') : t('game.runBenchmark')}
           </Button>
+          {bench !== null && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {t('game.benchmark')}: {bench.avgLines.toFixed(1)} /{' '}
+              {bench.bestLines} {t('game.lines')}
+            </p>
+          )}
         </div>
 
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          {t('game.controlsHint')}
-        </p>
+        {mode === 'manual' && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {t('game.controlsHint')}
+          </p>
+        )}
       </div>
     </div>
   );

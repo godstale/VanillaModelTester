@@ -1,0 +1,244 @@
+import { COLS } from '../tetris/constants';
+import {
+  createGame,
+  gravityTick,
+  hardDrop,
+  move,
+  rotate,
+} from '../tetris/engine';
+import type { ActivePiece, Board, EngineState } from '../tetris/types';
+import { enumerateCandidates } from '../ai/candidates';
+import { heuristicAgent } from '../ai/heuristicAgent';
+import type {
+  BoardSnapshot,
+  CandidateMove,
+  DecisionAgent,
+  MoveDecision,
+} from '../ai/types';
+import {
+  DEFAULT_SIM_CONFIG,
+  type EpisodeStats,
+  type SimConfig,
+} from './types';
+
+/** Candidate enumeration seam: (board, active) -> legal landing options. */
+export type CandidateEnumerator = (
+  board: Board,
+  active: ActivePiece,
+) => CandidateMove[];
+
+const DECIDE_TIMEOUT_MS = 2000;
+const MAX_ROT_ATTEMPTS = 4;
+
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+interface PlacedDecision {
+  decision: MoveDecision;
+  target: CandidateMove;
+}
+
+export class Simulator {
+  state: EngineState;
+
+  private agent: DecisionAgent;
+  private fallback: DecisionAgent;
+  private seed: number;
+  private config: SimConfig;
+  private enumerate: CandidateEnumerator;
+  private stepIndex = 0;
+  private decisions = 0;
+  private fallbacks = 0;
+  private confidenceSum = 0;
+  private latencySumMs = 0;
+
+  constructor(
+    agent: DecisionAgent,
+    seed: number,
+    config: SimConfig = DEFAULT_SIM_CONFIG,
+    enumerate: CandidateEnumerator = enumerateCandidates,
+    fallback: DecisionAgent = heuristicAgent,
+  ) {
+    this.agent = agent;
+    this.fallback = fallback;
+    this.seed = seed;
+    this.config = config;
+    this.enumerate = enumerate;
+    this.state = createGame(seed);
+  }
+
+  get steps(): number {
+    return this.stepIndex;
+  }
+
+  get decisionCount(): number {
+    return this.decisions;
+  }
+
+  get fallbackCount(): number {
+    return this.fallbacks;
+  }
+
+  snapshot(): BoardSnapshot {
+    const current = this.state;
+    return {
+      board: current.board,
+      active: current.active,
+      queue: current.queue,
+      score: current.score,
+      lines: current.lines,
+      level: current.level,
+      stepIndex: this.stepIndex,
+    };
+  }
+
+  async stepOnce(): Promise<'progress' | 'ended'> {
+    if (
+      this.state.status === 'over' ||
+      this.stepIndex >= this.config.maxSteps
+    ) {
+      return 'ended';
+    }
+    const active = this.state.active;
+    const candidates =
+      active === null ? [] : this.enumerate(this.state.board, active);
+    if (active === null || candidates.length === 0) {
+      this.state = gravityTick(this.state).state;
+      this.stepIndex += 1;
+      return 'progress';
+    }
+    const snap = this.snapshot();
+    const placed = await this.askAgent(this.agent, snap, candidates);
+    if (placed !== null) {
+      this.recordDecision(placed);
+      this.applyPlacement(placed.target);
+      this.stepIndex += 1;
+      return 'progress';
+    }
+    this.fallbacks += 1;
+    const rescued = await this.askAgent(this.fallback, snap, candidates);
+    if (rescued !== null) {
+      this.recordDecision(rescued);
+      this.applyPlacement(rescued.target);
+    } else {
+      this.state = gravityTick(this.state).state;
+    }
+    this.stepIndex += 1;
+    return 'progress';
+  }
+
+  async run(): Promise<EpisodeStats> {
+    const started = Date.now();
+    while ((await this.stepOnce()) === 'progress') {
+      // Advance one decision tick per iteration until game over or maxSteps.
+    }
+    return this.stats(Date.now() - started);
+  }
+
+  stats(durationMs: number): EpisodeStats {
+    const current = this.state;
+    return {
+      agent: this.agent.name,
+      seed: this.seed,
+      steps: this.stepIndex,
+      pieces: current.pieces,
+      lines: current.lines,
+      score: current.score,
+      level: current.level,
+      decisions: this.decisions,
+      fallbacks: this.fallbacks,
+      avgConfidence:
+        this.decisions === 0 ? 0 : this.confidenceSum / this.decisions,
+      avgLatencyMs:
+        this.decisions === 0 ? 0 : this.latencySumMs / this.decisions,
+      durationMs,
+      ended: current.status === 'over' ? 'gameover' : 'maxSteps',
+    };
+  }
+
+  reset(seed?: number): void {
+    if (seed !== undefined) {
+      this.seed = seed;
+    }
+    this.state = createGame(this.seed);
+    this.stepIndex = 0;
+    this.decisions = 0;
+    this.fallbacks = 0;
+    this.confidenceSum = 0;
+    this.latencySumMs = 0;
+  }
+
+  private recordDecision(placed: PlacedDecision): void {
+    this.decisions += 1;
+    this.confidenceSum += finiteOrZero(placed.decision.confidence);
+    this.latencySumMs += finiteOrZero(placed.decision.latencyMs);
+  }
+
+  private async askAgent(
+    agent: DecisionAgent,
+    snap: BoardSnapshot,
+    candidates: CandidateMove[],
+  ): Promise<PlacedDecision | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const pending = agent.decide(snap, candidates);
+      pending.catch(() => {
+        // The timeout may win the race; ignore the late settlement.
+      });
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('decide timeout')),
+          DECIDE_TIMEOUT_MS,
+        );
+      });
+      const decision = await Promise.race([pending, timeout]);
+      if (decision.abstained) {
+        return null;
+      }
+      const target = candidates.find((c) => c.id === decision.moveId);
+      if (target === undefined) {
+        return null;
+      }
+      return { decision, target };
+    } catch {
+      return null;
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private applyPlacement(target: CandidateMove): void {
+    let current = this.state;
+    for (
+      let i = 0;
+      i < MAX_ROT_ATTEMPTS &&
+      current.active !== null &&
+      current.active.rot !== target.rot;
+      i += 1
+    ) {
+      const next = rotate(current, 1);
+      current = next.state;
+      if (!next.rotated) {
+        break;
+      }
+    }
+    for (
+      let i = 0;
+      i < COLS + 4 &&
+      current.active !== null &&
+      current.active.x !== target.x;
+      i += 1
+    ) {
+      const active = current.active;
+      const next = move(current, target.x > active.x ? 1 : -1, 0);
+      current = next.state;
+      if (!next.moved) {
+        break;
+      }
+    }
+    this.state = hardDrop(current).state;
+  }
+}
