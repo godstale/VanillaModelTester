@@ -26,19 +26,20 @@
 │   ├── lib/brand.ts           # APP_NAME/APP_VERSION (교체 대상)
 │   ├── components/
 │   │   ├── brand/AppMark.tsx          # 로고 컴포넌트 (교체 대상)
-│   │   ├── layout/                    # ActivityBar, TopMenuBar, WorkspaceLayout
-│   │   ├── sidepanel/SidePanel.tsx    # activeView → 패널 라우터
-│   │   ├── explorer/FileTree.tsx      # 파일 트리 (Tauri fs_commands 사용)
+│   │   ├── layout/                    # ActivityBar(테트리스·Laya 탭 열기), TopMenuBar(폴더 메뉴 없음)
+│   │   ├── sidepanel/SidePanel.tsx    # 좌측 패널 제거됨 (null 라우터, 호환용 유지)
 │   │   ├── workspace/
 │   │   │   ├── CenterWorkspace.tsx    # 탭 바 + 드래그 + 분할 + 콘텐츠 라우팅
 │   │   │   ├── EditorTab.tsx          # CodeMirror 편집기 (자동 저장)
 │   │   │   ├── ImageViewerTab.tsx     # 이미지 뷰어 (줌)
-│   │   │   ├── WelcomeGuide.tsx       # 폴더 없음/시작 가이드 (+ 테트리스 열기)
+│   │   │   ├── WelcomeGuide.tsx       # 모델 테스터 홈 (테트리스·Laya 열기)
 │   │   │   ├── TabPlaceholder.tsx     # 미등록 탭 타입 폴백
-│   │   │   └── TrustWorkspaceDialog.tsx # 폴더 신뢰 확인
+│   │   │   └── TrustWorkspaceDialog.tsx # 폴더 흐름 제거로 미사용 (호환용 유지)
 │   │   ├── game/
-│   │   │   ├── TetrisTab.tsx          # 수동 플레이 탭 (tab.meta.sessionId 시드)
+│   │   │   ├── TetrisTab.tsx          # 자동 플레이 전용 탭 (수동 모드 없음)
 │   │   │   └── BoardCanvas.tsx        # Canvas 보드 렌더러 (고스트 피스 포함)
+│   │   ├── laya/
+│   │   │   └── LayaServiceTab.tsx     # laya-serve 시작·정지·상태·로그 탭
 │   │   ├── language/LanguageSelectDialog.tsx # 첫 실행 언어 선택
 │   │   ├── ui/                        # shadcn/ui 프리미티브 + Vanilla 컴포넌트(Badge·Card·Switch·Progress·Tabs·Table·Textarea)
 │   │   └── ErrorBoundary.tsx
@@ -53,12 +54,13 @@
 │       ├── utils.ts / fileIcons.ts
 │       ├── tetris/                      # 순수 게임 엔진 (types, constants, engine)
 │       ├── sim/                         # 시뮬레이터 루프 (types, simulator, headless)
-│       ├── ai/                          # 에이전트 인터페이스 + candidates/mock/heuristic
-│       ├── types/                     # workspaceTab(탭 타입에 'game' 포함), settings, fileTree
+│       ├── ai/                          # 에이전트 인터페이스 + candidates/mock/heuristic/layaHttp
+│       ├── laya/                        # serviceClient (laya_* invoke + /health)
+│       ├── types/                     # workspaceTab('game'·'laya-service' 탭, GAME/LAYA 탭 id), settings
 │       ├── context/                   # concern별 Context (전역 스토어 금지)
-│       │   ├── WorkspaceContext.tsx   # workspaceRoot + 신뢰 + 최근 폴더
+│       │   ├── WorkspaceContext.tsx   # workspaceRoot + 신뢰 + 최근 폴더 (폴더 UI 제거로 대기 상태)
 │       │   ├── WorkspaceTabsContext.tsx # 탭 상태 + 드래그/분할 + 영속화
-│       │   ├── SidePanelContext.tsx   # activeView
+│       │   ├── SidePanelContext.tsx   # activeView (패널 없이 활성 탭 하이라이트용)
 │       │   ├── SettingsContext.tsx    # AppSettings
 │       │   └── ThemeContext.tsx       # light/dark/system
 │       ├── i18n/                      # Locale, 사전(ko/en), LanguageContext
@@ -72,7 +74,7 @@
     ├── capabilities/default.json # Tauri 권한 (필요 최소한만)
     └── src/
         ├── main.rs / lib.rs   # 플러그인 + invoke_handler 등록 지점
-        └── commands/          # fs/search/shell 명령 (신규 명령 추가 지점)
+        └── commands/          # fs/search/shell/laya_service 명령 (신규 명령 추가 지점)
 ```
 
 ## 어디를 먼저 읽을까
