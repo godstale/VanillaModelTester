@@ -1,7 +1,6 @@
 # 확장 가이드 (Extension Guide)
 
 > 탭·패널·뷰어·설정·명령·문구를 추가하는 정석 절차입니다.
-> 예제 도메인(`collections`, `extensions`)을 복사해 시작하는 것을 권장합니다.
 
 ## 1. 새 탭 종류 추가하기
 
@@ -62,12 +61,8 @@
 2. `en.ts`에 같은 키 추가 (타입이 `Dict`를 강제하므로 빠뜨리면 컴파일 에러).
 3. `t('네임스페이스.키')`로 사용. `{param}` 치환은 `t('키', { param })`.
 
-## 8. 예제 도메인 제거하기
+## 8. 예제 도메인 제거 상태
 
-`collections`·`extensions` 예제가 필요 없으면:
-
-- `src/components/collections/`, `src/components/extensions/`,
-  `src/lib/collections/`, `src/lib/extensions/` 삭제.
-- `CenterWorkspace`에서 해당 타입·분기 제거, `SidePanel`·`ActivityBar`에서 항목 제거,
-  `workspaceTab.ts`에서 타입 제거, 사전에서 `collections*`·`extensions*`·
-  `collectionEditor*`·`extensionViewer*` 키 제거, `items` 테이블 제거(§6 역순).
+`collections`·`extensions` 예제와 디자인 쇼케이스(`/design`)는 이미 제거되어
+있습니다(최소 셸만 유지). 앞으로 새 도메인을 없앨 때는 §1·§2의 역순으로
+(등록 해제 → 사전 키 제거 → 파일 삭제 → 관련 테이블 제거) 정리합니다.

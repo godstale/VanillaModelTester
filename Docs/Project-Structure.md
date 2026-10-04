@@ -29,15 +29,10 @@
 │   │   ├── layout/                    # ActivityBar, TopMenuBar, WorkspaceLayout
 │   │   ├── sidepanel/SidePanel.tsx    # activeView → 패널 라우터
 │   │   ├── explorer/FileTree.tsx      # 파일 트리 (Tauri fs_commands 사용)
-│   │   ├── collections/CollectionListPanel.tsx  # 예제: DB 기반 목록 패널
-│   │   ├── extensions/ExtensionListPanel.tsx    # 예제: 파일 스캔 목록 패널
 │   │   ├── workspace/
 │   │   │   ├── CenterWorkspace.tsx    # 탭 바 + 드래그 + 분할 + 콘텐츠 라우팅
 │   │   │   ├── EditorTab.tsx          # CodeMirror 편집기 (자동 저장)
 │   │   │   ├── ImageViewerTab.tsx     # 이미지 뷰어 (줌)
-│   │   │   ├── CodeViewer.tsx         # 읽기 전용 코드 블록
-│   │   │   ├── CollectionEditorTab.tsx# 예제: 엔티티 편집 탭
-│   │   │   ├── ExtensionViewerTab.tsx # 예제: 매니페스트 뷰어 탭
 │   │   │   ├── WelcomeGuide.tsx       # 폴더 없음/시작 가이드
 │   │   │   ├── TabPlaceholder.tsx     # 미등록 탭 타입 폴백
 │   │   │   └── TrustWorkspaceDialog.tsx # 폴더 신뢰 확인
@@ -46,16 +41,14 @@
 │   │   └── ErrorBoundary.tsx
 │   ├── pages/
 │   │   ├── Workspace.tsx              # Provider 조립 + ActivityBar 동작 + 시작 탭
-│   │   ├── Design/                    # 디자인 둘러보기(#/design): 브랜드·팔레트·타이포·컴포넌트·대시보드·인트로
 │   │   └── Settings/                  # 전체 화면 설정 라우트
 │   │       ├── SettingsLayout.tsx     # 좌측 네비 + Outlet (항목 추가 지점)
-│   │       ├── SettingsGeneral.tsx    # 테마·언어
-│   │       └── SettingsApp.tsx        # 예제: 앱 설정 페이지
+│   │       └── SettingsGeneral.tsx    # 테마·언어
 │   ├── hooks/
 │   │   └── useKeyboardShortcuts.ts    # 전역 단축키
 │   └── lib/
 │       ├── utils.ts / fileIcons.ts
-│       ├── types/                     # workspaceTab, settings, collection, extension, fileTree
+│       ├── types/                     # workspaceTab, settings, fileTree
 │       ├── context/                   # concern별 Context (전역 스토어 금지)
 │       │   ├── WorkspaceContext.tsx   # workspaceRoot + 신뢰 + 최근 폴더
 │       │   ├── WorkspaceTabsContext.tsx # 탭 상태 + 드래그/분할 + 영속화
@@ -67,8 +60,6 @@
 │       │   ├── client.ts              # 전역/프로젝트 DB + MemorySqlFallback
 │       │   ├── migrations/0001_init.sql # 스키마 원본 (client.ts와 동기화 유지)
 │       │   └── repositories/          # settingsRepo + 도메인 repo
-│       ├── collections/itemsRepo.ts   # 예제: items CRUD
-│       └── extensions/scanner.ts      # 예제: .extensions 스캔
 └── src-tauri/
     ├── tauri.conf.json        # productName/identifier/창/CSP (교체 대상)
     ├── Cargo.toml
@@ -91,8 +82,8 @@
 ## 소유 규칙
 
 - 새 도메인 엔티티는 `src/lib/<도메인>/` + `src/components/<도메인>/` +
-  `src/lib/types/<도메인>.ts` 세트를 새로 만듭니다. 기존 예제(`collections`,
-  `extensions`)를 복사해 시작하세요.
+  `src/lib/types/<도메인>.ts` 세트를 새로 만듭니다.
+  탭·패널 등록 절차는 `Docs/Extension-Guide.md`를 따르세요.
 - `src/components/ui/`는 shadcn CLI로만 추가하고 직접 수정하지 않습니다.
 - 파일/폴더명은 이 트리의 위치를 그대로 따릅니다. 구조 변경이 필요하면
   이 문서와 코드를 함께 갱신합니다.

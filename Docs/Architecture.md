@@ -28,7 +28,7 @@
 데이터 기반 배열, 순수 컨트롤드 컴포넌트, 활성 아이콘에 `bg-primary/10 text-primary` 타일.
 
 ```ts
-type SidePanelView = 'explorer' | 'collections' | 'extensions' | null;
+type SidePanelView = 'explorer' | null;
 ```
 
 - 아이콘 클릭 시 패널이 없으면 펼치고 해당 뷰로 전환, 이미 활성인 아이콘을 다시 클릭하면 패널이 접힘 (`Workspace.tsx`의 `handleActivityBarSelect`).
@@ -46,12 +46,7 @@ type SidePanelView = 'explorer' | 'collections' | 'extensions' | null;
 ### 1.3 우측 탭 콘텐츠 (`CenterWorkspace.tsx`)
 
 ```ts
-type WorkspaceTabType =
-  | 'editor'
-  | 'image-viewer'
-  | 'collection-editor'
-  | 'extension-viewer'
-  | 'welcome';
+type WorkspaceTabType = 'editor' | 'image-viewer' | 'welcome';
 
 interface WorkspaceTab {
   id: string; // 예: "editor:${filePath}", "collection:${itemId}"
@@ -122,14 +117,13 @@ export interface AppSettings {
 3. **동작**: 폴더가 열려 있으면 탭 상태는 프로젝트 DB에만 저장/복원, 나머지는 전역 DB.
    폴더가 없으면 전역 DB가 fallback.
 
-### 3.3 예제 도메인 (교체 대상)
+### 3.3 도메인 자리 (테트리스·Laya용으로 비워 둠)
 
-- **Collections** (`items` 테이블, `src/lib/collections/itemsRepo.ts`):
-  목록·생성·이름 변경·삭제 + `collection-editor` 탭 패턴의 예제. 실제 프로젝트의
-  엔티티 CRUD를 만들 때 이 파일들을 복사해 시작하십시오.
-- **Extensions** (`{workspaceRoot}/.extensions/*/extension.json`,
-  `src/lib/extensions/scanner.ts`): 파일 스캔 + 활성/비활성 토글 +
-  `extension-viewer` 탭 패턴의 예제.
+- 템플릿의 예제 도메인(`collections`/`items` 테이블, `extensions` 스캔)은
+  제거되었습니다. 새 엔티티는 `src/lib/<도메인>/` +
+  `src/components/<도메인>/` + `src/lib/types/<도메인>.ts` 세트로 만들고
+  `Docs/Extension-Guide.md` 절차로 탭·패널에 등록하십시오.
+- `app_settings.enabled_extensions` 컬럼은 설정 스키마에 남아 있습니다.
 
 ---
 
