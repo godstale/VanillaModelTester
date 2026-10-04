@@ -34,3 +34,18 @@ export interface HeadlessSummary {
   bestLines: number;
   totalMs: number;
 }
+
+/** One logged decision step. Texts come from decision.raw when the agent
+ *  provides them (layaHttpAgent does); otherwise they are empty strings. */
+export interface StepRecord {
+  stepIndex: number;
+  stateText: string;
+  candidatesText: string;
+  chosen: string;
+  confidence: number;
+  latencyMs: number;
+}
+
+export interface SimSink {
+  onStep(rec: StepRecord): void;
+}

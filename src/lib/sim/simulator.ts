@@ -19,6 +19,8 @@ import {
   DEFAULT_SIM_CONFIG,
   type EpisodeStats,
   type SimConfig,
+  type SimSink,
+  type StepRecord,
 } from './types';
 
 /** Candidate enumeration seam: (board, active) -> legal landing options. */
@@ -39,6 +41,22 @@ interface PlacedDecision {
   target: CandidateMove;
 }
 
+function rawTexts(decision: MoveDecision): {
+  stateText: string;
+  candidatesText: string;
+} {
+  const holder = decision as unknown as { raw?: unknown };
+  if (typeof holder.raw !== 'object' || holder.raw === null) {
+    return { stateText: '', candidatesText: '' };
+  }
+  const raw = holder.raw as Record<string, unknown>;
+  return {
+    stateText: typeof raw.stateText === 'string' ? raw.stateText : '',
+    candidatesText:
+      typeof raw.candidatesText === 'string' ? raw.candidatesText : '',
+  };
+}
+
 export class Simulator {
   state: EngineState;
 
@@ -47,6 +65,7 @@ export class Simulator {
   private seed: number;
   private config: SimConfig;
   private enumerate: CandidateEnumerator;
+  private sink?: SimSink;
   private stepIndex = 0;
   private decisions = 0;
   private fallbacks = 0;
@@ -59,12 +78,14 @@ export class Simulator {
     config: SimConfig = DEFAULT_SIM_CONFIG,
     enumerate: CandidateEnumerator = enumerateCandidates,
     fallback: DecisionAgent = heuristicAgent,
+    sink?: SimSink,
   ) {
     this.agent = agent;
     this.fallback = fallback;
     this.seed = seed;
     this.config = config;
     this.enumerate = enumerate;
+    this.sink = sink;
     this.state = createGame(seed);
   }
 
@@ -173,6 +194,18 @@ export class Simulator {
     this.decisions += 1;
     this.confidenceSum += finiteOrZero(placed.decision.confidence);
     this.latencySumMs += finiteOrZero(placed.decision.latencyMs);
+    if (this.sink !== undefined) {
+      const { stateText, candidatesText } = rawTexts(placed.decision);
+      const rec: StepRecord = {
+        stepIndex: this.stepIndex,
+        stateText,
+        candidatesText,
+        chosen: placed.decision.moveId,
+        confidence: finiteOrZero(placed.decision.confidence),
+        latencyMs: finiteOrZero(placed.decision.latencyMs),
+      };
+      this.sink.onStep(rec);
+    }
   }
 
   private async askAgent(

@@ -183,6 +183,10 @@ const en: Dict = {
   'game.benchmark': 'Benchmark',
   'game.runBenchmark': 'Benchmark 100',
   'game.benchmarkRunning': 'Running benchmark…',
+  'game.laya': 'Laya',
+  'game.layaUrl': 'Laya URL',
+  'game.layaHint': 'Enter the laya-serve URL (e.g. http://127.0.0.1:8000)',
+  'game.maxSteps': 'Max steps',
 };
 
 export default en;

@@ -15,9 +15,21 @@ import {
 import { Simulator } from '@/lib/sim/simulator';
 import { runHeadless } from '@/lib/sim/headless';
 import { DEFAULT_SIM_CONFIG } from '@/lib/sim/types';
-import type { EpisodeStats, HeadlessSummary } from '@/lib/sim/types';
+import type {
+  EpisodeStats,
+  HeadlessSummary,
+  StepRecord,
+} from '@/lib/sim/types';
+import {
+  recordEpisode,
+  recordSteps,
+} from '@/lib/db/repositories/simRepo';
 import { createHeuristicAgent } from '@/lib/ai/heuristicAgent';
 import { createMockAgent } from '@/lib/ai/mockAgent';
+import {
+  createLayaHttpAgent,
+  DEFAULT_LAYA_URL,
+} from '@/lib/ai/layaHttpAgent';
 import type { DecisionAgent } from '@/lib/ai/types';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -41,12 +53,33 @@ function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
 }
 
-type AgentKind = 'mock' | 'heuristic';
+type AgentKind = 'mock' | 'heuristic' | 'laya';
 type AutoSpeed = '1x' | '10x' | 'max';
 
 // Agent pickers for auto mode and the benchmark runner.
-function makeLocalAgent(kind: AgentKind, seed: number): DecisionAgent {
-  return kind === 'heuristic' ? createHeuristicAgent() : createMockAgent(seed);
+function makeLocalAgent(
+  kind: AgentKind,
+  seed: number,
+  layaBaseUrl: string,
+): DecisionAgent {
+  if (kind === 'heuristic') return createHeuristicAgent();
+  if (kind === 'laya') return createLayaHttpAgent(layaBaseUrl);
+  return createMockAgent(seed);
+}
+
+const LAYA_BASE_URL_KEY = 'laya.baseUrl';
+const LAYA_DEFAULT_MAX_STEPS = 300;
+
+function defaultMaxStepsFor(kind: AgentKind): number {
+  return kind === 'laya' ? LAYA_DEFAULT_MAX_STEPS : DEFAULT_SIM_CONFIG.maxSteps;
+}
+
+function readLayaBaseUrl(): string {
+  try {
+    return localStorage.getItem(LAYA_BASE_URL_KEY) ?? DEFAULT_LAYA_URL;
+  } catch {
+    return DEFAULT_LAYA_URL;
+  }
 }
 
 const BENCH_EPISODES = 100;
@@ -119,7 +152,13 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   });
   const [bench, setBench] = useState<HeadlessSummary | null>(null);
   const [benchRunning, setBenchRunning] = useState(false);
+  const [maxSteps, setMaxSteps] = useState(DEFAULT_SIM_CONFIG.maxSteps);
+  const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
   const simRef = useRef<Simulator | null>(null);
+  const runRef = useRef<{ seed: number; steps: StepRecord[] }>({
+    seed: 0,
+    steps: [],
+  });
   const autoStartRef = useRef<number>(0);
   const genRef = useRef<number>(0);
   const busyRef = useRef<boolean>(false);
@@ -153,6 +192,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     });
   };
 
+  // Finished episodes are persisted for offline analysis; a storage
+  // failure must never break the game flow.
+  const persistEpisode = (stats: EpisodeStats, steps: StepRecord[]) => {
+    const episodeId = crypto.randomUUID();
+    void (async () => {
+      try {
+        await recordEpisode({ ...stats, id: episodeId });
+        await recordSteps(episodeId, steps);
+      } catch (err) {
+        console.warn('Failed to persist sim episode:', err);
+      }
+    })();
+  };
+
   // 1x/10x auto stepping: one stepOnce per tick, re-rendered each step.
   useEffect(() => {
     if (mode !== 'auto' || speed === 'max') return;
@@ -176,7 +229,9 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         if (cancelled) return;
         syncAutoView(sim);
         if (result === 'ended') {
-          setAutoStats(sim.stats(Date.now() - autoStartRef.current));
+          const stats = sim.stats(Date.now() - autoStartRef.current);
+          setAutoStats(stats);
+          persistEpisode(stats, runRef.current.steps);
           return;
         }
       } finally {
@@ -211,6 +266,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       if (cancelled || genRef.current !== gen) return;
       syncAutoView(sim);
       setAutoStats(result);
+      persistEpisode(result, runRef.current.steps);
     });
     return () => {
       cancelled = true;
@@ -221,15 +277,29 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     wrapRef.current?.focus();
   };
 
-  const beginAuto = (seed: number) => {
+  const beginAuto = (
+    seed: number,
+    agent: AgentKind = agentKind,
+    stepsLimit: number = maxSteps,
+    baseUrl: string = layaBaseUrl,
+  ) => {
     genRef.current += 1;
     autoStartRef.current = Date.now();
+    const collected: StepRecord[] = [];
     const sim = new Simulator(
-      makeLocalAgent(agentKind, seed),
+      makeLocalAgent(agent, seed, baseUrl),
       seed,
-      DEFAULT_SIM_CONFIG,
+      { maxSteps: stepsLimit },
+      undefined,
+      undefined,
+      {
+        onStep: (rec) => {
+          collected.push(rec);
+        },
+      },
     );
     simRef.current = sim;
+    runRef.current = { seed, steps: collected };
     setAutoStats(null);
     syncAutoView(sim);
   };
@@ -245,8 +315,36 @@ export function TetrisTab({ tab }: TetrisTabProps) {
 
   const handleAgentChange = (next: AgentKind) => {
     setAgentKind(next);
+    const switched =
+      maxSteps === defaultMaxStepsFor(agentKind)
+        ? defaultMaxStepsFor(next)
+        : maxSteps;
+    setMaxSteps(switched);
     if (mode === 'auto') {
-      beginAuto(freshSeed());
+      beginAuto(freshSeed(), next, switched);
+    }
+    focusBoard();
+  };
+
+  const handleMaxStepsChange = (value: string) => {
+    const next = Math.floor(Number(value));
+    if (!Number.isFinite(next) || next < 1) return;
+    setMaxSteps(next);
+    if (mode === 'auto') {
+      beginAuto(freshSeed(), agentKind, next);
+    }
+    focusBoard();
+  };
+
+  const handleLayaUrlChange = (value: string) => {
+    setLayaBaseUrl(value);
+    try {
+      localStorage.setItem(LAYA_BASE_URL_KEY, value);
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    if (mode === 'auto' && agentKind === 'laya') {
+      beginAuto(freshSeed(), agentKind, maxSteps, value);
     }
     focusBoard();
   };
@@ -268,7 +366,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setBenchRunning(true);
     try {
       const { summary } = await runHeadless(
-        () => makeLocalAgent('heuristic', 0),
+        () => makeLocalAgent('heuristic', 0, layaBaseUrl),
         {
           episodes: BENCH_EPISODES,
           baseSeed: BENCH_BASE_SEED,
@@ -451,8 +549,25 @@ export function TetrisTab({ tab }: TetrisTabProps) {
               >
                 <option value="mock">{t('game.mockAgent')}</option>
                 <option value="heuristic">{t('game.heuristicAgent')}</option>
+                <option value="laya">{t('game.laya')}</option>
               </select>
             </label>
+            {agentKind === 'laya' && (
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                {t('game.layaUrl')}
+                <input
+                  aria-label={t('game.layaUrl')}
+                  type="url"
+                  value={layaBaseUrl}
+                  onChange={(e) => handleLayaUrlChange(e.target.value)}
+                  placeholder={DEFAULT_LAYA_URL}
+                  className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+                />
+                <span className="text-[11px] leading-relaxed">
+                  {t('game.layaHint')}
+                </span>
+              </label>
+            )}
             <label className="flex flex-col gap-1 text-xs text-muted-foreground">
               {t('game.speed')}
               <select
@@ -467,6 +582,17 @@ export function TetrisTab({ tab }: TetrisTabProps) {
                 <option value="10x">10x</option>
                 <option value="max">max</option>
               </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.maxSteps')}
+              <input
+                aria-label={t('game.maxSteps')}
+                type="number"
+                min={1}
+                value={maxSteps}
+                onChange={(e) => handleMaxStepsChange(e.target.value)}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
             </label>
             <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
               <div className="flex items-center justify-between text-xs">

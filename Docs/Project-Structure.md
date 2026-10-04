@@ -52,6 +52,8 @@
 │   └── lib/
 │       ├── utils.ts / fileIcons.ts
 │       ├── tetris/                      # 순수 게임 엔진 (types, constants, engine)
+│       ├── sim/                         # 시뮬레이터 루프 (types, simulator, headless)
+│       ├── ai/                          # 에이전트 인터페이스 + candidates/mock/heuristic
 │       ├── types/                     # workspaceTab(탭 타입에 'game' 포함), settings, fileTree
 │       ├── context/                   # concern별 Context (전역 스토어 금지)
 │       │   ├── WorkspaceContext.tsx   # workspaceRoot + 신뢰 + 최근 폴더
@@ -63,7 +65,7 @@
 │       ├── db/
 │       │   ├── client.ts              # 전역/프로젝트 DB + MemorySqlFallback
 │       │   ├── migrations/0001_init.sql # 스키마 원본 (client.ts와 동기화 유지)
-│       │   └── repositories/          # settingsRepo + 도메인 repo
+│       │   └── repositories/          # settingsRepo + simRepo(시뮬레이터 로그)
 └── src-tauri/
     ├── tauri.conf.json        # productName/identifier/창/CSP (교체 대상)
     ├── Cargo.toml

@@ -181,6 +181,10 @@ const ko = {
   'game.benchmark': '벤치마크',
   'game.runBenchmark': '벤치마크 100',
   'game.benchmarkRunning': '벤치마크 실행 중…',
+  'game.laya': '라야',
+  'game.layaUrl': 'Laya URL',
+  'game.layaHint': 'laya-serve 주소를 입력하세요 (예: http://127.0.0.1:8000)',
+  'game.maxSteps': '최대 스텝',
 };
 
 export type Dict = typeof ko;

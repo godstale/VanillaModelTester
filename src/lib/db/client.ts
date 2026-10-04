@@ -18,6 +18,32 @@ export const MIGRATION_STATEMENTS: string[] = [
     trusted_workspaces TEXT NOT NULL DEFAULT '[]',
     last_workspace_root TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS sim_episodes (
+    id TEXT PRIMARY KEY,
+    agent TEXT NOT NULL,
+    seed INTEGER NOT NULL,
+    steps INTEGER NOT NULL DEFAULT 0,
+    lines INTEGER NOT NULL DEFAULT 0,
+    score INTEGER NOT NULL DEFAULT 0,
+    pieces INTEGER NOT NULL DEFAULT 0,
+    decisions INTEGER NOT NULL DEFAULT 0,
+    fallbacks INTEGER NOT NULL DEFAULT 0,
+    avg_confidence REAL,
+    avg_latency_ms REAL DEFAULT 0,
+    duration_ms INTEGER DEFAULT 0,
+    ended_at TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS sim_steps (
+    episode_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    state_text TEXT DEFAULT '',
+    candidates_text TEXT DEFAULT '',
+    chosen TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    latency_ms INTEGER DEFAULT 0,
+    PRIMARY KEY (episode_id, step_index)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sim_episodes_agent ON sim_episodes(agent)`,
 ];
 
 type Row = Record<string, unknown>;
@@ -33,6 +59,8 @@ export class MemorySqlFallback implements SqlDatabase {
 
   constructor() {
     this.tables.set('app_settings', new Map());
+    this.tables.set('sim_episodes', new Map());
+    this.tables.set('sim_steps', new Map());
   }
 
   async execute(
@@ -94,15 +122,86 @@ export class MemorySqlFallback implements SqlDatabase {
       }
       return { rowsAffected: 1 };
     }
+    if (q.startsWith('INSERT INTO sim_episodes')) {
+      const [
+        id,
+        agent,
+        seed,
+        steps,
+        lines,
+        score,
+        pieces,
+        decisions,
+        fallbacks,
+        avg_confidence,
+        avg_latency_ms,
+        duration_ms,
+        ended_at,
+      ] = bindValues;
+      this.tables.get('sim_episodes')?.set(id as string, {
+        id,
+        agent,
+        seed,
+        steps,
+        lines,
+        score,
+        pieces,
+        decisions,
+        fallbacks,
+        avg_confidence,
+        avg_latency_ms,
+        duration_ms,
+        ended_at,
+      });
+      return { rowsAffected: 1 };
+    }
+    if (q.startsWith('INSERT INTO sim_steps')) {
+      const [
+        episode_id,
+        step_index,
+        state_text,
+        candidates_text,
+        chosen,
+        confidence,
+        latency_ms,
+      ] = bindValues;
+      this.tables.get('sim_steps')?.set(
+        `${episode_id as string}:${step_index as number}`,
+        {
+          episode_id,
+          step_index,
+          state_text,
+          candidates_text,
+          chosen,
+          confidence,
+          latency_ms,
+        },
+      );
+      return { rowsAffected: 1 };
+    }
     throw new Error(
       `MemorySqlFallback: unsupported statement: ${q.slice(0, 80)}`,
     );
   }
 
-  async select<T>(query: string): Promise<T> {
+  async select<T>(query: string, bindValues: unknown[] = []): Promise<T> {
     const q = norm(query);
     if (q.startsWith("SELECT * FROM app_settings WHERE id = 'singleton'")) {
       return Array.from(this.tables.get('app_settings')?.values() ?? []) as T;
+    }
+    if (q.includes('FROM sim_episodes')) {
+      const [agent] = bindValues;
+      const rows = Array.from(this.tables.get('sim_episodes')?.values() ?? []);
+      return rows.filter((row) => row.agent === agent) as T;
+    }
+    if (q.includes('FROM sim_steps')) {
+      const [episodeId] = bindValues;
+      const rows = Array.from(this.tables.get('sim_steps')?.values() ?? [])
+        .filter((row) => row.episode_id === episodeId)
+        .sort(
+          (a, b) => Number(a.step_index ?? 0) - Number(b.step_index ?? 0),
+        );
+      return rows as T;
     }
     throw new Error(`MemorySqlFallback: unsupported query: ${q.slice(0, 80)}`);
   }
