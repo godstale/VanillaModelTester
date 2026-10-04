@@ -2,7 +2,6 @@ import type { LayaMonitorState } from '@/components/game/layaMonitor';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface LayaStatusPanelProps {
-  agentKind: string;
   running: boolean;
   baseUrl: string;
   steps: number;
@@ -25,7 +24,6 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function LayaStatusPanel({
-  agentKind,
   running,
   baseUrl,
   steps,
@@ -36,7 +34,6 @@ export function LayaStatusPanel({
   monitor,
 }: LayaStatusPanelProps) {
   const { t } = useLanguage();
-  const isLaya = agentKind === 'laya';
 
   const statusKey =
     monitor.connStatus === 'ended'
@@ -80,7 +77,7 @@ export function LayaStatusPanel({
             {t(statusKey)}
           </span>
         </div>
-        <Row label={t('game.agent')} value={agentKind} />
+        <Row label={t('game.laya')} value="laya" />
         <Row
           label={t('game.layaRunningState')}
           value={running ? t('game.layaRunning') : t('game.layaIdle')}
@@ -94,12 +91,6 @@ export function LayaStatusPanel({
         />
         <Row label={t('game.errorCount')} value={String(monitor.errorCount)} />
       </div>
-
-      {!isLaya && (
-        <p className="rounded-lg border border-dashed border-border p-3 text-[11px] leading-relaxed text-muted-foreground">
-          {t('game.layaOnlyHint')}
-        </p>
-      )}
 
       <div className="space-y-2 rounded-lg border border-border bg-card p-3">
         <span className="text-xs font-semibold text-foreground">

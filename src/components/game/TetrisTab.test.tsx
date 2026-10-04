@@ -29,7 +29,11 @@ describe('TetrisTab', () => {
       screen.queryByRole('button', { name: '수동' }),
     ).toBeNull();
     screen.getByRole('button', { name: '시작' });
-    screen.getByLabelText('에이전트');
+    // Laya-only: no agent picker, the Laya URL field is always visible.
+    expect(
+      screen.queryByLabelText('에이전트'),
+    ).toBeNull();
+    screen.getByLabelText('Laya URL');
     screen.getByLabelText('속도');
     screen.getByLabelText('최대 스텝');
   });
@@ -67,12 +71,7 @@ describe('TetrisTab', () => {
     expect(panel.textContent).toContain('마지막 입력');
     expect(panel.textContent).toContain('마지막 출력');
 
-    // Non-laya agents get a guidance hint.
-    screen.getByText(/라야 에이전트를 선택하면/);
-
-    // Switching to laya reveals the URL field and drops the hint.
-    const agentSelect = screen.getByLabelText('에이전트');
-    fireEvent.change(agentSelect, { target: { value: 'laya' } });
+    // Laya-only: the URL field is always visible, no agent hint is shown.
     screen.getByLabelText('Laya URL');
     expect(screen.queryByText(/라야 에이전트를 선택하면/)).toBeNull();
     screen.getByTestId('laya-status-panel');

@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createEmptyBoard } from '../tetris/constants';
 import type { ActivePiece, Board } from '../tetris/types';
 import { enumerateCandidates } from './candidates';
-import { scoreOf } from './heuristicAgent';
-import { encodePlacementRequest } from './stateEncoder';
+import { encodePlacementRequest, scoreForCut } from './stateEncoder';
 import type { BoardSnapshot } from './types';
 
 function snapOn(board: Board, active: ActivePiece): BoardSnapshot {
@@ -29,7 +28,7 @@ describe('encodePlacementRequest', () => {
     expect(req.kept).toHaveLength(3);
     expect(req.dropped).toBe(cands.length - 3);
 
-    const scores = req.kept.map((c) => scoreOf(c.features));
+    const scores = req.kept.map((c) => scoreForCut(c.features));
     for (let i = 0; i + 1 < scores.length; i++) {
       expect(scores[i]).toBeGreaterThanOrEqual(scores[i + 1]);
     }

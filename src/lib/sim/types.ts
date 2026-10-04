@@ -7,7 +7,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   maxSteps: 5000,
 };
 
-export type EpisodeEnd = 'gameover' | 'maxSteps';
+export type EpisodeEnd = 'gameover' | 'maxSteps' | 'laya-error';
 
 export interface EpisodeStats {
   agent: string;

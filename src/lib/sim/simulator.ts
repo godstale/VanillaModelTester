@@ -8,7 +8,6 @@ import {
 } from '../tetris/engine';
 import type { ActivePiece, Board, EngineState } from '../tetris/types';
 import { enumerateCandidates } from '../ai/candidates';
-import { heuristicAgent } from '../ai/heuristicAgent';
 import type {
   BoardSnapshot,
   CandidateMove,
@@ -29,7 +28,9 @@ export type CandidateEnumerator = (
   active: ActivePiece,
 ) => CandidateMove[];
 
-const DECIDE_TIMEOUT_MS = 2000;
+// The agent owns its own HTTP timeout (layaHttpAgent defaults to 10s), so the
+// simulator-level race only guards against agents that never settle.
+const DECIDE_TIMEOUT_MS = 15000;
 const MAX_ROT_ATTEMPTS = 4;
 
 function finiteOrZero(value: number): number {
@@ -61,7 +62,6 @@ export class Simulator {
   state: EngineState;
 
   private agent: DecisionAgent;
-  private fallback: DecisionAgent;
   private seed: number;
   private config: SimConfig;
   private enumerate: CandidateEnumerator;
@@ -69,6 +69,7 @@ export class Simulator {
   private stepIndex = 0;
   private decisions = 0;
   private fallbacks = 0;
+  private layaFailed = false;
   private confidenceSum = 0;
   private latencySumMs = 0;
 
@@ -77,11 +78,9 @@ export class Simulator {
     seed: number,
     config: SimConfig = DEFAULT_SIM_CONFIG,
     enumerate: CandidateEnumerator = enumerateCandidates,
-    fallback: DecisionAgent = heuristicAgent,
     sink?: SimSink,
   ) {
     this.agent = agent;
-    this.fallback = fallback;
     this.seed = seed;
     this.config = config;
     this.enumerate = enumerate;
@@ -137,16 +136,12 @@ export class Simulator {
       this.stepIndex += 1;
       return 'progress';
     }
+    // Laya-only: a throw, timeout, or abstention ends the episode instead of
+    // being rescued. This app tests the model, so a silent rescue would hide
+    // model failures.
     this.fallbacks += 1;
-    const rescued = await this.askAgent(this.fallback, snap, candidates);
-    if (rescued !== null) {
-      this.recordDecision(rescued);
-      this.applyPlacement(rescued.target);
-    } else {
-      this.state = gravityTick(this.state).state;
-    }
-    this.stepIndex += 1;
-    return 'progress';
+    this.layaFailed = true;
+    return 'ended';
   }
 
   async run(): Promise<EpisodeStats> {
@@ -174,7 +169,11 @@ export class Simulator {
       avgLatencyMs:
         this.decisions === 0 ? 0 : this.latencySumMs / this.decisions,
       durationMs,
-      ended: current.status === 'over' ? 'gameover' : 'maxSteps',
+      ended: this.layaFailed
+        ? 'laya-error'
+        : current.status === 'over'
+          ? 'gameover'
+          : 'maxSteps',
     };
   }
 
@@ -186,6 +185,7 @@ export class Simulator {
     this.stepIndex = 0;
     this.decisions = 0;
     this.fallbacks = 0;
+    this.layaFailed = false;
     this.confidenceSum = 0;
     this.latencySumMs = 0;
   }

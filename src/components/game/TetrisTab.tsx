@@ -14,7 +14,6 @@ import { cellFor, cellsOf, gravityMsForLevel } from '@/lib/tetris/constants';
 import { createGame } from '@/lib/tetris/engine';
 import { Simulator } from '@/lib/sim/simulator';
 import { runHeadless } from '@/lib/sim/headless';
-import { DEFAULT_SIM_CONFIG } from '@/lib/sim/types';
 import type {
   EpisodeStats,
   HeadlessSummary,
@@ -24,12 +23,7 @@ import {
   recordEpisode,
   recordSteps,
 } from '@/lib/db/repositories/simRepo';
-import { createHeuristicAgent } from '@/lib/ai/heuristicAgent';
-import { createMockAgent } from '@/lib/ai/mockAgent';
-import {
-  createLayaHttpAgent,
-  DEFAULT_LAYA_URL,
-} from '@/lib/ai/layaHttpAgent';
+import { createLayaHttpAgent, DEFAULT_LAYA_URL } from '@/lib/ai/layaHttpAgent';
 import type { DecisionAgent } from '@/lib/ai/types';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -53,25 +47,15 @@ function freshSeed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
 }
 
-type AgentKind = 'mock' | 'heuristic' | 'laya';
 type AutoSpeed = '1x' | '10x' | 'max';
-
-// Agent pickers for auto mode and the benchmark runner.
-function makeLocalAgent(
-  kind: AgentKind,
-  seed: number,
-  layaBaseUrl: string,
-): DecisionAgent {
-  if (kind === 'heuristic') return createHeuristicAgent();
-  if (kind === 'laya') return createLayaHttpAgent(layaBaseUrl);
-  return createMockAgent(seed);
-}
 
 const LAYA_BASE_URL_KEY = 'laya.baseUrl';
 const LAYA_DEFAULT_MAX_STEPS = 300;
 
-function defaultMaxStepsFor(kind: AgentKind): number {
-  return kind === 'laya' ? LAYA_DEFAULT_MAX_STEPS : DEFAULT_SIM_CONFIG.maxSteps;
+function endedKey(ended: EpisodeStats['ended']): string {
+  if (ended === 'laya-error') return 'game.endedLayaError';
+  if (ended === 'maxSteps') return 'game.endedMaxSteps';
+  return 'game.gameover';
 }
 
 function readLayaBaseUrl(): string {
@@ -133,7 +117,6 @@ function NextPiece({ kind }: { kind: PieceKind | undefined }) {
 
 export function TetrisTab({ tab }: TetrisTabProps) {
   const { t } = useLanguage();
-  const [agentKind, setAgentKind] = useState<AgentKind>('mock');
   const [speed, setSpeed] = useState<AutoSpeed>('1x');
   const [autoBoard, setAutoBoard] = useState<EngineState>(() =>
     createGame(seedFromTab(tab)),
@@ -156,7 +139,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     done: number;
     total: number;
   } | null>(null);
-  const [maxSteps, setMaxSteps] = useState(DEFAULT_SIM_CONFIG.maxSteps);
+  const [maxSteps, setMaxSteps] = useState(LAYA_DEFAULT_MAX_STEPS);
   const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
   const simRef = useRef<Simulator | null>(null);
   const runRef = useRef<{ seed: number; steps: StepRecord[] }>({
@@ -285,12 +268,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speed, autoRunning]);
 
-  const buildMonitoredAgent = (
-    kind: AgentKind,
-    seed: number,
-    baseUrl: string,
-  ): DecisionAgent => {
-    const inner = makeLocalAgent(kind, seed, baseUrl);
+  const buildMonitoredAgent = (baseUrl: string): DecisionAgent => {
+    const inner = createLayaHttpAgent(baseUrl);
     return {
       name: inner.name,
       decide: async (snap, cands) => {
@@ -331,7 +310,6 @@ export function TetrisTab({ tab }: TetrisTabProps) {
 
   const setupAutoSim = (
     seed: number,
-    agent: AgentKind = agentKind,
     stepsLimit: number = maxSteps,
     baseUrl: string = layaBaseUrl,
   ) => {
@@ -340,10 +318,9 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     autoStartRef.current = Date.now();
     const collected: StepRecord[] = [];
     const sim = new Simulator(
-      buildMonitoredAgent(agent, seed, baseUrl),
+      buildMonitoredAgent(baseUrl),
       seed,
       { maxSteps: stepsLimit },
-      undefined,
       undefined,
       {
         onStep: (rec) => {
@@ -359,26 +336,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     syncAutoView(sim);
   };
 
-  const handleAgentChange = (next: AgentKind) => {
-    setAgentKind(next);
-    const switched =
-      maxSteps === defaultMaxStepsFor(agentKind)
-        ? defaultMaxStepsFor(next)
-        : maxSteps;
-    setMaxSteps(switched);
-    // Rebuild the idle preview; keep running only if already running.
-    setupAutoSim(freshSeed(), next, switched);
-    if (autoRunning) {
-      autoStartRef.current = Date.now();
-      setAutoRunning(true);
-    }
-  };
-
   const handleMaxStepsChange = (value: string) => {
     const next = Math.floor(Number(value));
     if (!Number.isFinite(next) || next < 1) return;
     setMaxSteps(next);
-    setupAutoSim(freshSeed(), agentKind, next);
+    setupAutoSim(freshSeed(), next);
     if (autoRunning) {
       autoStartRef.current = Date.now();
       setAutoRunning(true);
@@ -392,8 +354,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     } catch {
       // Private-mode storage may throw; the session value still applies.
     }
-    if (agentKind === 'laya') {
-      setupAutoSim(freshSeed(), agentKind, maxSteps, value);
+    if (value.trim().length > 0) {
+      setupAutoSim(freshSeed(), maxSteps, value);
       if (autoRunning) {
         autoStartRef.current = Date.now();
         setAutoRunning(true);
@@ -424,11 +386,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setBenchProgress({ done: 0, total: BENCH_EPISODES });
     try {
       const { summary } = await runHeadless(
-        () => makeLocalAgent('heuristic', 0, layaBaseUrl),
+        () => createLayaHttpAgent(layaBaseUrl),
         {
           episodes: BENCH_EPISODES,
           baseSeed: BENCH_BASE_SEED,
-          maxSteps: DEFAULT_SIM_CONFIG.maxSteps,
+          maxSteps,
           onEpisode: (done, total) => {
             setBenchProgress({ done, total });
           },
@@ -506,36 +468,19 @@ export function TetrisTab({ tab }: TetrisTabProps) {
 
         <div className="flex flex-col gap-2">
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            {t('game.agent')}
-            <select
-              aria-label={t('game.agent')}
-              value={agentKind}
-              onChange={(e) =>
-                handleAgentChange(e.target.value as AgentKind)
-              }
+            {t('game.layaUrl')}
+            <input
+              aria-label={t('game.layaUrl')}
+              type="url"
+              value={layaBaseUrl}
+              onChange={(e) => handleLayaUrlChange(e.target.value)}
+              placeholder={DEFAULT_LAYA_URL}
               className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-            >
-              <option value="mock">{t('game.mockAgent')}</option>
-              <option value="heuristic">{t('game.heuristicAgent')}</option>
-              <option value="laya">{t('game.laya')}</option>
-            </select>
+            />
+            <span className="text-[11px] leading-relaxed">
+              {t('game.layaHint')}
+            </span>
           </label>
-          {agentKind === 'laya' && (
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              {t('game.layaUrl')}
-              <input
-                aria-label={t('game.layaUrl')}
-                type="url"
-                value={layaBaseUrl}
-                onChange={(e) => handleLayaUrlChange(e.target.value)}
-                placeholder={DEFAULT_LAYA_URL}
-                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-              />
-              <span className="text-[11px] leading-relaxed">
-                {t('game.layaHint')}
-              </span>
-            </label>
-          )}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             {t('game.speed')}
             <select
@@ -597,7 +542,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             </div>
             {autoStats !== null && (
               <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-                {t('game.gameover')} · {t('game.episode')} {autoStats.ended}
+                {t(endedKey(autoStats.ended))} · {t('game.episode')}{' '}
+                {autoStats.lines} {t('game.lines')}
               </p>
             )}
           </div>
@@ -678,7 +624,6 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       </div>
 
       <LayaStatusPanel
-        agentKind={agentKind}
         running={autoRunning}
         baseUrl={layaBaseUrl}
         steps={autoCounters.steps}

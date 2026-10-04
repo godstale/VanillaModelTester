@@ -79,12 +79,13 @@ describe('Simulator', () => {
     expect(withoutTiming(first)).toEqual(withoutTiming(second));
   });
 
-  it('counts fallbacks and rescues with the heuristic when the agent throws', async () => {
+  it('stops the episode when the agent throws instead of rescuing', async () => {
     const sim = new Simulator(throwingAgent(), 42, { maxSteps: 3 }, singleStay);
     const stats = await sim.run();
-    expect(stats.steps).toBe(3);
-    expect(stats.fallbacks).toBe(3);
-    expect(stats.decisions).toBe(3);
+    expect(stats.steps).toBe(0);
+    expect(stats.fallbacks).toBe(1);
+    expect(stats.decisions).toBe(0);
+    expect(stats.ended).toBe('laya-error');
   });
 
   it('returns ended when the game is already over', async () => {

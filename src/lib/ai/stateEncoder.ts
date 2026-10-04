@@ -1,12 +1,36 @@
 import { COLS, ROWS } from '../tetris/constants';
 import type { Board } from '../tetris/types';
-import { scoreOf } from './heuristicAgent';
-import type { BoardSnapshot, CandidateMove } from './types';
+import type {
+  BoardSnapshot,
+  CandidateFeatures,
+  CandidateMove,
+} from './types';
 
 export interface QuestionDef {
   type: 'choice' | 'score' | 'noul';
   instructions: string;
   criteria?: Record<string, string> | string[];
+}
+
+// Internal cut ranking for the top-N shortlist sent to Laya. This is not an
+// agent: it only decides which candidates fit the token budget. Higher is
+// better; clearing lines is the only positive term.
+const CUT_WEIGHTS = {
+  aggregateHeight: -0.51,
+  completeLines: 0.76,
+  holes: -0.36,
+  bumpiness: -0.18,
+  maxHeight: -0.05,
+} as const;
+
+export function scoreForCut(f: CandidateFeatures): number {
+  return (
+    f.aggregateHeight * CUT_WEIGHTS.aggregateHeight +
+    f.linesCleared * CUT_WEIGHTS.completeLines +
+    f.holes * CUT_WEIGHTS.holes +
+    f.bumpiness * CUT_WEIGHTS.bumpiness +
+    f.maxHeight * CUT_WEIGHTS.maxHeight
+  );
 }
 
 export interface EncodedRequest {
@@ -49,7 +73,7 @@ export function encodePlacementRequest(
   cands: CandidateMove[],
   maxCandidates = 8,
 ): EncodedRequest {
-  const scored = cands.map((c) => ({ c, s: scoreOf(c.features) }));
+  const scored = cands.map((c) => ({ c, s: scoreForCut(c.features) }));
   scored.sort((a, b) => {
     if (b.s !== a.s) {
       return b.s - a.s;
