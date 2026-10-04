@@ -19,38 +19,23 @@ function setup() {
 }
 
 describe('TetrisTab', () => {
-  it('renders the board canvas and HUD before starting', () => {
+  it('renders the board canvas and auto controls before starting', () => {
     setup();
     const canvas = screen.getByTestId('tetris-board');
     expect(canvas.getAttribute('width')).toBe('240');
     expect(canvas.getAttribute('height')).toBe('480');
-    // Throws if the button is missing.
+    // Auto-only: no manual/mode toggle, Start is shown.
+    expect(
+      screen.queryByRole('button', { name: '수동' }),
+    ).toBeNull();
     screen.getByRole('button', { name: '시작' });
+    screen.getByLabelText('에이전트');
+    screen.getByLabelText('속도');
+    screen.getByLabelText('최대 스텝');
   });
 
-  it('starts on button click and handles local keyboard input', () => {
+  it('waits for explicit start instead of auto-starting', () => {
     setup();
-    fireEvent.click(screen.getByRole('button', { name: '시작' }));
-    screen.getByRole('button', { name: '일시정지' });
-
-    const handler = screen.getByTestId('tetris-key-handler');
-    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' ']) {
-      fireEvent.keyDown(handler, { key });
-    }
-    // Game still running after valid inputs: pause control stays available.
-    screen.getByRole('button', { name: '일시정지' });
-  });
-
-  it('toggles pause and resume', () => {
-    setup();
-    fireEvent.click(screen.getByRole('button', { name: '시작' }));
-    fireEvent.click(screen.getByRole('button', { name: '일시정지' }));
-    screen.getByRole('button', { name: '계속' });
-  });
-
-  it('auto mode waits for explicit start instead of auto-starting', () => {
-    setup();
-    fireEvent.click(screen.getByRole('button', { name: '자동' }));
 
     // Idle: Start is shown, Restart/Stop are hidden, monitor is idle.
     screen.getByRole('button', { name: '시작' });
@@ -64,7 +49,6 @@ describe('TetrisTab', () => {
 
   it('auto start shows stop and stop returns to start', () => {
     setup();
-    fireEvent.click(screen.getByRole('button', { name: '자동' }));
     fireEvent.click(screen.getByRole('button', { name: '시작' }));
 
     screen.getByRole('button', { name: '정지' });
@@ -77,7 +61,6 @@ describe('TetrisTab', () => {
 
   it('shows the laya status column with input/output/latency sections', () => {
     setup();
-    fireEvent.click(screen.getByRole('button', { name: '자동' }));
 
     const panel = screen.getByTestId('laya-status-panel');
     expect(panel.textContent).toContain('라야 상태');
@@ -93,5 +76,10 @@ describe('TetrisTab', () => {
     screen.getByLabelText('Laya URL');
     expect(screen.queryByText(/라야 에이전트를 선택하면/)).toBeNull();
     screen.getByTestId('laya-status-panel');
+  });
+
+  it('offers the benchmark action with progress support', () => {
+    setup();
+    screen.getByRole('button', { name: '벤치마크 100' });
   });
 });

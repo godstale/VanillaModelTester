@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw, Square } from 'lucide-react';
+import { Play, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BoardCanvas } from '@/components/game/BoardCanvas';
 import { LayaStatusPanel } from '@/components/game/LayaStatusPanel';
@@ -11,13 +11,7 @@ import type { LayaMonitorEvent } from '@/components/game/layaMonitor';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { EngineState, PieceKind } from '@/lib/tetris/types';
 import { cellFor, cellsOf, gravityMsForLevel } from '@/lib/tetris/constants';
-import {
-  createGame,
-  gravityTick,
-  hardDrop,
-  move,
-  rotate,
-} from '@/lib/tetris/engine';
+import { createGame } from '@/lib/tetris/engine';
 import { Simulator } from '@/lib/sim/simulator';
 import { runHeadless } from '@/lib/sim/headless';
 import { DEFAULT_SIM_CONFIG } from '@/lib/sim/types';
@@ -139,17 +133,11 @@ function NextPiece({ kind }: { kind: PieceKind | undefined }) {
 
 export function TetrisTab({ tab }: TetrisTabProps) {
   const { t } = useLanguage();
-  const [engine, setEngine] = useState<EngineState>(() =>
-    createGame(seedFromTab(tab)),
-  );
-  const [running, setRunning] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  const [mode, setMode] = useState<'manual' | 'auto'>('manual');
   const [agentKind, setAgentKind] = useState<AgentKind>('mock');
   const [speed, setSpeed] = useState<AutoSpeed>('1x');
-  const [autoBoard, setAutoBoard] = useState<EngineState | null>(null);
+  const [autoBoard, setAutoBoard] = useState<EngineState>(() =>
+    createGame(seedFromTab(tab)),
+  );
   const [autoStats, setAutoStats] = useState<EpisodeStats | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoAvg, setAutoAvg] = useState<{
@@ -164,6 +152,10 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   });
   const [bench, setBench] = useState<HeadlessSummary | null>(null);
   const [benchRunning, setBenchRunning] = useState(false);
+  const [benchProgress, setBenchProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [maxSteps, setMaxSteps] = useState(DEFAULT_SIM_CONFIG.maxSteps);
   const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
   const simRef = useRef<Simulator | null>(null);
@@ -174,25 +166,9 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const autoStartRef = useRef<number>(0);
   const genRef = useRef<number>(0);
   const busyRef = useRef<boolean>(false);
+  const benchCancelRef = useRef<boolean>(false);
 
-  const over = engine.status === 'over';
-  const active = running && !paused && !over;
-
-  const display = mode === 'auto' ? (autoBoard ?? engine) : engine;
-
-  useEffect(() => {
-    wrapRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (!active || mode !== 'manual') return;
-    const id = window.setInterval(() => {
-      setEngine((prev) =>
-        prev.status === 'over' ? prev : gravityTick(prev).state,
-      );
-    }, gravityMsForLevel(engine.level));
-    return () => window.clearInterval(id);
-  }, [active, engine.level, mode]);
+  const display = autoBoard;
 
   const emitMonitor = useCallback((event: LayaMonitorEvent) => {
     setLayaMonitor((prev) => reduceLayaMonitor(prev, event));
@@ -240,9 +216,9 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   };
 
   // 1x/10x auto stepping: one stepOnce per tick, re-rendered each step.
-  // Gated by autoRunning so entering auto mode never starts by itself.
+  // Gated by autoRunning so the tab never starts by itself.
   useEffect(() => {
-    if (mode !== 'auto' || speed === 'max' || !autoRunning) return;
+    if (speed === 'max' || !autoRunning) return;
     let cancelled = false;
     let timer = 0;
     const schedule = (delay: number) => {
@@ -286,11 +262,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, speed, autoRunning]);
+  }, [speed, autoRunning]);
 
   // max auto speed: no interval, one run() then a single render.
   useEffect(() => {
-    if (mode !== 'auto' || speed !== 'max' || !autoRunning) return;
+    if (speed !== 'max' || !autoRunning) return;
     const sim = simRef.current;
     if (sim === null) return;
     const gen = genRef.current;
@@ -307,11 +283,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, speed, autoRunning]);
-
-  const focusBoard = () => {
-    wrapRef.current?.focus();
-  };
+  }, [speed, autoRunning]);
 
   const buildMonitoredAgent = (
     kind: AgentKind,
@@ -387,22 +359,6 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     syncAutoView(sim);
   };
 
-  const handleModeChange = (next: 'manual' | 'auto') => {
-    if (next === mode) return;
-    if (next === 'auto') {
-      // Enter auto mode idle so the user can adjust settings first.
-      setupAutoSim(freshSeed());
-      setAutoRunning(false);
-    } else {
-      // Leaving auto mode always halts the loop.
-      genRef.current += 1;
-      busyRef.current = false;
-      setAutoRunning(false);
-    }
-    setMode(next);
-    focusBoard();
-  };
-
   const handleAgentChange = (next: AgentKind) => {
     setAgentKind(next);
     const switched =
@@ -410,29 +366,23 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         ? defaultMaxStepsFor(next)
         : maxSteps;
     setMaxSteps(switched);
-    if (mode === 'auto') {
-      // Rebuild the idle preview; keep running only if already running.
-      setupAutoSim(freshSeed(), next, switched);
-      if (autoRunning) {
-        autoStartRef.current = Date.now();
-        setAutoRunning(true);
-      }
+    // Rebuild the idle preview; keep running only if already running.
+    setupAutoSim(freshSeed(), next, switched);
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
     }
-    focusBoard();
   };
 
   const handleMaxStepsChange = (value: string) => {
     const next = Math.floor(Number(value));
     if (!Number.isFinite(next) || next < 1) return;
     setMaxSteps(next);
-    if (mode === 'auto') {
-      setupAutoSim(freshSeed(), agentKind, next);
-      if (autoRunning) {
-        autoStartRef.current = Date.now();
-        setAutoRunning(true);
-      }
+    setupAutoSim(freshSeed(), agentKind, next);
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
     }
-    focusBoard();
   };
 
   const handleLayaUrlChange = (value: string) => {
@@ -442,14 +392,13 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     } catch {
       // Private-mode storage may throw; the session value still applies.
     }
-    if (mode === 'auto' && agentKind === 'laya') {
+    if (agentKind === 'laya') {
       setupAutoSim(freshSeed(), agentKind, maxSteps, value);
       if (autoRunning) {
         autoStartRef.current = Date.now();
         setAutoRunning(true);
       }
     }
-    focusBoard();
   };
 
   const handleSpeedChange = (next: AutoSpeed) => {
@@ -458,19 +407,21 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setSpeed(next);
     // The max runner cannot be cancelled mid-flight, so transitions
     // involving max restart on a fresh simulator instead of sharing one.
-    if (mode === 'auto' && involvesMax) {
+    if (involvesMax) {
       setupAutoSim(freshSeed());
       if (autoRunning) {
         autoStartRef.current = Date.now();
         setAutoRunning(true);
       }
     }
-    focusBoard();
   };
 
   const handleBenchmark = async () => {
     if (benchRunning) return;
+    benchCancelRef.current = false;
     setBenchRunning(true);
+    setBench(null);
+    setBenchProgress({ done: 0, total: BENCH_EPISODES });
     try {
       const { summary } = await runHeadless(
         () => makeLocalAgent('heuristic', 0, layaBaseUrl),
@@ -478,109 +429,52 @@ export function TetrisTab({ tab }: TetrisTabProps) {
           episodes: BENCH_EPISODES,
           baseSeed: BENCH_BASE_SEED,
           maxSteps: DEFAULT_SIM_CONFIG.maxSteps,
+          onEpisode: (done, total) => {
+            setBenchProgress({ done, total });
+          },
+          shouldCancel: () => benchCancelRef.current,
         },
       );
-      setBench(summary);
+      if (!benchCancelRef.current) {
+        setBench(summary);
+      }
     } finally {
       setBenchRunning(false);
+      setBenchProgress(null);
     }
   };
 
-  const handleStart = () => {
-    setRunning(true);
-    setPaused(false);
-    focusBoard();
-  };
-
-  const handlePause = () => {
-    setPaused(true);
-    focusBoard();
-  };
-
-  const handleResume = () => {
-    setPaused(false);
-    focusBoard();
-  };
-
-  const handleRestart = () => {
-    const fresh = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-    setEngine(createGame(fresh));
-    setRunning(true);
-    setPaused(false);
-    focusBoard();
+  const handleBenchmarkCancel = () => {
+    benchCancelRef.current = true;
   };
 
   const handleAutoStart = () => {
     setupAutoSim(freshSeed());
     autoStartRef.current = Date.now();
     setAutoRunning(true);
-    focusBoard();
   };
 
   const handleAutoStop = () => {
     genRef.current += 1;
     busyRef.current = false;
     setAutoRunning(false);
-    focusBoard();
   };
 
   const handleAutoRestart = () => {
     setupAutoSim(freshSeed());
     autoStartRef.current = Date.now();
     setAutoRunning(true);
-    focusBoard();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (mode !== 'manual' || !active) return;
-    switch (e.key) {
-      case 'ArrowLeft':
-        e.preventDefault();
-        setEngine((s) => move(s, -1, 0).state);
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        setEngine((s) => move(s, 1, 0).state);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        setEngine((s) => move(s, 0, 1).state);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setEngine((s) => rotate(s, 1).state);
-        break;
-      case ' ':
-        e.preventDefault();
-        setEngine((s) => hardDrop(s).state);
-        break;
-      default:
-        break;
-    }
-  };
+  const benchPct =
+    benchProgress === null || benchProgress.total === 0
+      ? 0
+      : Math.round((benchProgress.done / benchProgress.total) * 100);
 
   return (
-    <div
-      ref={wrapRef}
-      tabIndex={0}
-      autoFocus
-      data-testid="tetris-key-handler"
-      onKeyDown={handleKeyDown}
-      onClick={focusBoard}
-      className="flex h-full w-full min-h-0 select-none gap-4 overflow-auto bg-editor p-4 outline-none"
-    >
+    <div className="flex h-full w-full min-h-0 gap-4 overflow-auto bg-editor p-4">
       <div className="relative h-fit shrink-0">
         <BoardCanvas board={display.board} active={display.active} />
-        {over && mode === 'manual' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-md bg-background/80">
-            <p className="text-sm font-semibold text-foreground">
-              {t('game.gameover')}
-            </p>
-            <Button type="button" size="sm" onClick={handleRestart}>
-              {t('game.playAgain')}
-            </Button>
-          </div>
-        )}
       </div>
 
       <div className="flex w-40 shrink-0 flex-col gap-3">
@@ -610,187 +504,170 @@ export function TetrisTab({ tab }: TetrisTabProps) {
           <NextPiece kind={display.queue[0]} />
         </div>
 
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === 'manual' ? 'default' : 'outline'}
-            onClick={() => handleModeChange('manual')}
-          >
-            {t('game.manual')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === 'auto' ? 'default' : 'outline'}
-            onClick={() => handleModeChange('auto')}
-          >
-            {t('game.auto')}
-          </Button>
+        <div className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t('game.agent')}
+            <select
+              aria-label={t('game.agent')}
+              value={agentKind}
+              onChange={(e) =>
+                handleAgentChange(e.target.value as AgentKind)
+              }
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+            >
+              <option value="mock">{t('game.mockAgent')}</option>
+              <option value="heuristic">{t('game.heuristicAgent')}</option>
+              <option value="laya">{t('game.laya')}</option>
+            </select>
+          </label>
+          {agentKind === 'laya' && (
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.layaUrl')}
+              <input
+                aria-label={t('game.layaUrl')}
+                type="url"
+                value={layaBaseUrl}
+                onChange={(e) => handleLayaUrlChange(e.target.value)}
+                placeholder={DEFAULT_LAYA_URL}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <span className="text-[11px] leading-relaxed">
+                {t('game.layaHint')}
+              </span>
+            </label>
+          )}
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t('game.speed')}
+            <select
+              aria-label={t('game.speed')}
+              value={speed}
+              onChange={(e) =>
+                handleSpeedChange(e.target.value as AutoSpeed)
+              }
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+            >
+              <option value="1x">1x</option>
+              <option value="10x">10x</option>
+              <option value="max">max</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t('game.maxSteps')}
+            <input
+              aria-label={t('game.maxSteps')}
+              type="number"
+              min={1}
+              value={maxSteps}
+              onChange={(e) => handleMaxStepsChange(e.target.value)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+            />
+          </label>
+          <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {t('game.steps')}
+              </span>
+              <span className="font-mono font-semibold text-foreground">
+                {autoCounters.steps}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {t('game.pieces')}
+              </span>
+              <span className="font-mono font-semibold text-foreground">
+                {autoBoard?.pieces ?? 0}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {t('game.decisions')}
+              </span>
+              <span className="font-mono font-semibold text-foreground">
+                {autoCounters.decisions}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {t('game.fallbacks')}
+              </span>
+              <span className="font-mono font-semibold text-foreground">
+                {autoCounters.fallbacks}
+              </span>
+            </div>
+            {autoStats !== null && (
+              <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+                {t('game.gameover')} · {t('game.episode')} {autoStats.ended}
+              </p>
+            )}
+          </div>
+          {!autoRunning ? (
+            <Button type="button" size="sm" onClick={handleAutoStart}>
+              <Play className="h-3.5 w-3.5" />
+              {t('game.start')}
+            </Button>
+          ) : (
+            <>
+              <Button type="button" size="sm" onClick={handleAutoStop}>
+                <Square className="h-3.5 w-3.5" />
+                {t('game.stop')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleAutoRestart}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {t('game.restart')}
+              </Button>
+            </>
+          )}
         </div>
 
-        {mode === 'manual' ? (
-          <div className="flex flex-col gap-2">
-            {!running ? (
-              <Button type="button" size="sm" onClick={handleStart}>
-                <Play className="h-3.5 w-3.5" />
-                {t('game.start')}
-              </Button>
-            ) : paused ? (
-              <Button type="button" size="sm" onClick={handleResume}>
-                <Play className="h-3.5 w-3.5" />
-                {t('game.resume')}
-              </Button>
-            ) : (
-              <Button type="button" size="sm" onClick={handlePause}>
-                <Pause className="h-3.5 w-3.5" />
-                {t('game.pause')}
-              </Button>
-            )}
+        <div className="flex flex-col gap-2">
+          {!benchRunning ? (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              disabled={!running}
-              onClick={handleRestart}
+              onClick={() => void handleBenchmark()}
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t('game.restart')}
+              {t('game.runBenchmark')}
             </Button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              {t('game.agent')}
-              <select
-                aria-label={t('game.agent')}
-                value={agentKind}
-                onChange={(e) =>
-                  handleAgentChange(e.target.value as AgentKind)
-                }
-                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleBenchmarkCancel}
+            >
+              <Square className="h-3.5 w-3.5" />
+              {t('game.benchmarkCancel')}
+            </Button>
+          )}
+          {benchProgress !== null && (
+            <div className="space-y-1">
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={benchProgress.total}
+                aria-valuenow={benchProgress.done}
               >
-                <option value="mock">{t('game.mockAgent')}</option>
-                <option value="heuristic">{t('game.heuristicAgent')}</option>
-                <option value="laya">{t('game.laya')}</option>
-              </select>
-            </label>
-            {agentKind === 'laya' && (
-              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                {t('game.layaUrl')}
-                <input
-                  aria-label={t('game.layaUrl')}
-                  type="url"
-                  value={layaBaseUrl}
-                  onChange={(e) => handleLayaUrlChange(e.target.value)}
-                  placeholder={DEFAULT_LAYA_URL}
-                  className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${benchPct}%` }}
                 />
-                <span className="text-[11px] leading-relaxed">
-                  {t('game.layaHint')}
-                </span>
-              </label>
-            )}
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              {t('game.speed')}
-              <select
-                aria-label={t('game.speed')}
-                value={speed}
-                onChange={(e) =>
-                  handleSpeedChange(e.target.value as AutoSpeed)
-                }
-                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-              >
-                <option value="1x">1x</option>
-                <option value="10x">10x</option>
-                <option value="max">max</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-              {t('game.maxSteps')}
-              <input
-                aria-label={t('game.maxSteps')}
-                type="number"
-                min={1}
-                value={maxSteps}
-                onChange={(e) => handleMaxStepsChange(e.target.value)}
-                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-              />
-            </label>
-            <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {t('game.steps')}
-                </span>
-                <span className="font-mono font-semibold text-foreground">
-                  {autoCounters.steps}
-                </span>
               </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {t('game.pieces')}
-                </span>
-                <span className="font-mono font-semibold text-foreground">
-                  {autoBoard?.pieces ?? 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {t('game.decisions')}
-                </span>
-                <span className="font-mono font-semibold text-foreground">
-                  {autoCounters.decisions}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  {t('game.fallbacks')}
-                </span>
-                <span className="font-mono font-semibold text-foreground">
-                  {autoCounters.fallbacks}
-                </span>
-              </div>
-              {autoStats !== null && (
-                <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  {t('game.gameover')} · {t('game.episode')} {autoStats.ended}
-                </p>
-              )}
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t('game.benchmarkProgress', {
+                  done: benchProgress.done,
+                  total: benchProgress.total,
+                })}
+              </p>
             </div>
-            {!autoRunning ? (
-              <Button type="button" size="sm" onClick={handleAutoStart}>
-                <Play className="h-3.5 w-3.5" />
-                {t('game.start')}
-              </Button>
-            ) : (
-              <>
-                <Button type="button" size="sm" onClick={handleAutoStop}>
-                  <Square className="h-3.5 w-3.5" />
-                  {t('game.stop')}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAutoRestart}
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  {t('game.restart')}
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={benchRunning}
-            onClick={() => void handleBenchmark()}
-          >
-            {benchRunning ? t('game.benchmarkRunning') : t('game.runBenchmark')}
-          </Button>
+          )}
           {bench !== null && (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               {t('game.benchmark')}: {bench.avgLines.toFixed(1)} /{' '}
@@ -798,27 +675,19 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             </p>
           )}
         </div>
-
-        {mode === 'manual' && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {t('game.controlsHint')}
-          </p>
-        )}
       </div>
 
-      {mode === 'auto' && (
-        <LayaStatusPanel
-          agentKind={agentKind}
-          running={autoRunning}
-          baseUrl={layaBaseUrl}
-          steps={autoCounters.steps}
-          decisions={autoCounters.decisions}
-          fallbacks={autoCounters.fallbacks}
-          avgLatencyMs={autoAvg.latencyMs}
-          avgConfidence={autoAvg.confidence}
-          monitor={layaMonitor}
-        />
-      )}
+      <LayaStatusPanel
+        agentKind={agentKind}
+        running={autoRunning}
+        baseUrl={layaBaseUrl}
+        steps={autoCounters.steps}
+        decisions={autoCounters.decisions}
+        fallbacks={autoCounters.fallbacks}
+        avgLatencyMs={autoAvg.latencyMs}
+        avgConfidence={autoAvg.confidence}
+        monitor={layaMonitor}
+      />
     </div>
   );
 }
