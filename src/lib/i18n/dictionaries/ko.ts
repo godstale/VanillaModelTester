@@ -153,6 +153,20 @@ const ko = {
   'shortcuts.closeTab': '현재 탭 닫기',
   'shortcuts.settings': '설정 열기',
   'shortcuts.sidebar': '사이드바 토글',
+
+  'game.title': '테트리스',
+  'game.start': '시작',
+  'game.pause': '일시정지',
+  'game.resume': '계속',
+  'game.restart': '다시 시작',
+  'game.score': '점수',
+  'game.lines': '라인',
+  'game.level': '레벨',
+  'game.next': '다음',
+  'game.gameover': '게임 오버',
+  'game.playAgain': '다시 플레이',
+  'game.openGame': '테트리스 시작',
+  'game.controlsHint': '← → 이동 · ↓ 소프트 드롭 · ↑ 회전 · Space 하드 드롭',
 };
 
 export type Dict = typeof ko;

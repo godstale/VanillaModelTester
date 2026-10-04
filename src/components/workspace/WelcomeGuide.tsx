@@ -5,11 +5,13 @@ import {
   Columns2,
   Languages,
   ArrowRight,
+  Gamepad2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AppMark } from '@/components/brand/AppMark';
 import { APP_NAME } from '@/lib/brand';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
+import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -18,6 +20,7 @@ import { invoke } from '@tauri-apps/api/core';
 export function WelcomeGuide() {
   const { t } = useLanguage();
   const { setWorkspaceRoot, recentWorkspaces } = useWorkspace();
+  const { openTab } = useWorkspaceTabs();
 
   const handlePickFolder = async () => {
     try {
@@ -28,6 +31,16 @@ export function WelcomeGuide() {
     } catch (err) {
       console.error('Failed to pick project folder:', err);
     }
+  };
+
+  const handleOpenGame = () => {
+    const sessionId = String(Date.now());
+    openTab({
+      id: `game:${sessionId}`,
+      type: 'game',
+      title: t('game.title'),
+      meta: { sessionId },
+    });
   };
 
   return (
@@ -63,6 +76,17 @@ export function WelcomeGuide() {
           >
             <FolderOpen className="h-4 w-4" />
             <span>{t('welcome.pickFolder')}</span>
+            <ArrowRight className="h-4 w-4 ml-auto opacity-70" />
+          </Button>
+
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={handleOpenGame}
+            className="w-full h-11 gap-2 text-sm font-semibold transition-all shadow-sm"
+          >
+            <Gamepad2 className="h-4 w-4" />
+            <span>{t('game.openGame')}</span>
             <ArrowRight className="h-4 w-4 ml-auto opacity-70" />
           </Button>
 

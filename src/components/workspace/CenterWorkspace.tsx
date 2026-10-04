@@ -4,6 +4,7 @@ import {
   FileCode,
   Image as ImageIcon,
   Compass,
+  Gamepad2,
   X,
   Plus,
   Columns2,
@@ -18,6 +19,7 @@ import type { WorkspaceTab, WorkspaceTabType } from '@/lib/types/workspaceTab';
 import { EditorTab } from '@/components/workspace/EditorTab';
 import { ImageViewerTab } from '@/components/workspace/ImageViewerTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
+import { TetrisTab } from '@/components/game/TetrisTab';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -28,6 +30,7 @@ const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
   editor: FileCode,
   'image-viewer': ImageIcon,
   welcome: Compass,
+  game: Gamepad2,
 };
 
 function renderTabContent(tab: WorkspaceTab) {
@@ -38,6 +41,8 @@ function renderTabContent(tab: WorkspaceTab) {
       return <ImageViewerTab tab={tab} />;
     case 'welcome':
       return <WelcomeGuide />;
+    case 'game':
+      return <TetrisTab tab={tab} />;
     default:
       return null;
   }

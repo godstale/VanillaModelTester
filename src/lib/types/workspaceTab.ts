@@ -1,4 +1,4 @@
-export type WorkspaceTabType = 'editor' | 'image-viewer' | 'welcome';
+export type WorkspaceTabType = 'editor' | 'image-viewer' | 'welcome' | 'game';
 
 export type SidePanelView = 'explorer' | null;
 

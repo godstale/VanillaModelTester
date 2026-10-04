@@ -155,6 +155,20 @@ const en: Dict = {
   'shortcuts.closeTab': 'Close current tab',
   'shortcuts.settings': 'Open settings',
   'shortcuts.sidebar': 'Toggle sidebar',
+
+  'game.title': 'Tetris',
+  'game.start': 'Start',
+  'game.pause': 'Pause',
+  'game.resume': 'Resume',
+  'game.restart': 'Restart',
+  'game.score': 'Score',
+  'game.lines': 'Lines',
+  'game.level': 'Level',
+  'game.next': 'Next',
+  'game.gameover': 'Game Over',
+  'game.playAgain': 'Play Again',
+  'game.openGame': 'Start Tetris',
+  'game.controlsHint': '← → move · ↓ soft drop · ↑ rotate · Space hard drop',
 };
 
 export default en;

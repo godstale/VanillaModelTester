@@ -33,9 +33,12 @@
 │   │   │   ├── CenterWorkspace.tsx    # 탭 바 + 드래그 + 분할 + 콘텐츠 라우팅
 │   │   │   ├── EditorTab.tsx          # CodeMirror 편집기 (자동 저장)
 │   │   │   ├── ImageViewerTab.tsx     # 이미지 뷰어 (줌)
-│   │   │   ├── WelcomeGuide.tsx       # 폴더 없음/시작 가이드
+│   │   │   ├── WelcomeGuide.tsx       # 폴더 없음/시작 가이드 (+ 테트리스 열기)
 │   │   │   ├── TabPlaceholder.tsx     # 미등록 탭 타입 폴백
 │   │   │   └── TrustWorkspaceDialog.tsx # 폴더 신뢰 확인
+│   │   ├── game/
+│   │   │   ├── TetrisTab.tsx          # 수동 플레이 탭 (tab.meta.sessionId 시드)
+│   │   │   └── BoardCanvas.tsx        # Canvas 보드 렌더러 (고스트 피스 포함)
 │   │   ├── language/LanguageSelectDialog.tsx # 첫 실행 언어 선택
 │   │   ├── ui/                        # shadcn/ui 프리미티브 + Vanilla 컴포넌트(Badge·Card·Switch·Progress·Tabs·Table·Textarea)
 │   │   └── ErrorBoundary.tsx
@@ -48,7 +51,8 @@
 │   │   └── useKeyboardShortcuts.ts    # 전역 단축키
 │   └── lib/
 │       ├── utils.ts / fileIcons.ts
-│       ├── types/                     # workspaceTab, settings, fileTree
+│       ├── tetris/                      # 순수 게임 엔진 (types, constants, engine)
+│       ├── types/                     # workspaceTab(탭 타입에 'game' 포함), settings, fileTree
 │       ├── context/                   # concern별 Context (전역 스토어 금지)
 │       │   ├── WorkspaceContext.tsx   # workspaceRoot + 신뢰 + 최근 폴더
 │       │   ├── WorkspaceTabsContext.tsx # 탭 상태 + 드래그/분할 + 영속화
