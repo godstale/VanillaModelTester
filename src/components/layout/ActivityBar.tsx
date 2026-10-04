@@ -1,11 +1,4 @@
-import {
-  Files,
-  NotebookText,
-  Palette,
-  Puzzle,
-  Settings,
-  type LucideIcon,
-} from 'lucide-react';
+import { Files, Settings, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
@@ -33,12 +26,6 @@ interface ActivityBarItem {
 // Each view must be handled in SidePanel.tsx.
 const ITEMS: ActivityBarItem[] = [
   { view: 'explorer', icon: Files, labelKey: 'activityBar.explorer' },
-  {
-    view: 'collections',
-    icon: NotebookText,
-    labelKey: 'activityBar.collections',
-  },
-  { view: 'extensions', icon: Puzzle, labelKey: 'activityBar.extensions' },
 ];
 
 export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
@@ -91,21 +78,6 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
         </div>
 
         <div className="flex flex-col items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/design"
-                aria-label={t('design.title')}
-                className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/[0.08] transition-colors cursor-pointer"
-              >
-                <Palette className="h-5 w-5" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>{t('design.title')}</p>
-            </TooltipContent>
-          </Tooltip>
-
           <Tooltip>
             <TooltipTrigger asChild>
               {!hasWorkspace ? (
