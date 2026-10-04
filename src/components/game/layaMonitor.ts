@@ -14,6 +14,7 @@ export interface LayaMonitorState {
   lastCandidatesText: string;
   lastChoice: string;
   lastConfidence: number | null;
+  lastDanger: boolean | null;
   lastLatencyMs: number | null;
   lastError: string | null;
   updatedAt: number | null;
@@ -28,6 +29,7 @@ export const initialLayaMonitor: LayaMonitorState = {
   lastCandidatesText: '',
   lastChoice: '',
   lastConfidence: null,
+  lastDanger: null,
   lastLatencyMs: null,
   lastError: null,
   updatedAt: null,
@@ -42,6 +44,7 @@ export type LayaMonitorEvent =
       candidatesText: string;
       choice: string;
       confidence: number;
+      danger: boolean | null;
       latencyMs: number;
     }
   | { type: 'error'; stepIndex: number; message: string; latencyMs: number }
@@ -70,6 +73,7 @@ export function reduceLayaMonitor(
         lastCandidatesText: event.candidatesText,
         lastChoice: event.choice,
         lastConfidence: event.confidence,
+        lastDanger: event.danger,
         lastLatencyMs: event.latencyMs,
         lastError: null,
         updatedAt: Date.now(),

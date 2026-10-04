@@ -127,6 +127,27 @@ export class Simulator {
       return 'progress';
     }
     const snap = this.snapshot();
+    // A forced move needs no judgment: calling the model could only add
+    // latency and a chance to pick the single legal option wrongly.
+    if (candidates.length === 1) {
+      const only = candidates[0];
+      if (only !== undefined && this.applyPlacement(only)) {
+        this.recordDecision({
+          decision: {
+            moveId: only.id,
+            confidence: 1,
+            abstained: false,
+            latencyMs: 0,
+          },
+          target: only,
+        });
+        this.stepIndex += 1;
+        return 'progress';
+      }
+      this.fallbacks += 1;
+      this.layaFailed = true;
+      return 'ended';
+    }
     const placed = await this.askAgent(this.agent, snap, candidates);
     if (placed !== null && this.applyPlacement(placed.target)) {
       this.recordDecision(placed);

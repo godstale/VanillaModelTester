@@ -28,6 +28,39 @@ interface KeptCandidate {
   features: unknown;
 }
 
+interface DangerReading {
+  danger: boolean | null;
+  dangerConfidence: number | null;
+}
+
+// The `danger` noul answer is `{type:'noul', noul:boolean}` plus an optional
+// `confidence`. Tolerant: a missing or malformed answer means "unknown", never
+// a crash. Unknown server versions simply report null.
+function readDanger(data: unknown): DangerReading {
+  const none: DangerReading = { danger: null, dangerConfidence: null };
+  if (!isRecord(data) || !isRecord(data['answers'])) {
+    return none;
+  }
+  const answer = data['answers']['danger'];
+  if (!isRecord(answer) || answer['type'] !== 'noul') {
+    return none;
+  }
+  if (typeof answer['noul'] !== 'boolean') {
+    return none;
+  }
+  const rawConfidence = answer['confidence'];
+  const fallbackConfidence = answer['answer_confidence'];
+  return {
+    danger: answer['noul'],
+    dangerConfidence:
+      typeof rawConfidence === 'number'
+        ? rawConfidence
+        : typeof fallbackConfidence === 'number'
+          ? fallbackConfidence
+          : null,
+  };
+}
+
 function toDecision(
   data: unknown,
   kept: KeptCandidate[],
@@ -50,13 +83,16 @@ function toDecision(
     typeof place['answer_confidence'] === 'number'
       ? place['answer_confidence']
       : 0;
-  const abstained = place['abstention'] === 'abstained';
+  const { danger, dangerConfidence } = readDanger(data);
+  // A lost position is not played out: stopping keeps the log honest instead
+  // of recording moves from a position the model itself judged doomed.
+  const abstained = place['abstention'] === 'abstained' || danger === true;
   return {
     moveId: choice,
     confidence,
     abstained,
     latencyMs: performance.now() - started,
-    raw: { stateText, candidatesText },
+    raw: { stateText, candidatesText, danger, dangerConfidence },
   };
 }
 

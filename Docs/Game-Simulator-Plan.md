@@ -94,7 +94,7 @@ export interface DecisionAgent { readonly name: string; decide(snap: BoardSnapsh
 | `stateEncoder.ts` | 후보 N개를 Laya 질문 1개로 묶을 수 있게 인코딩. §5 참조 |
 | `mockAgent.ts` | 랜덤 + 고정 시드. 파이프라인 스모크용 |
 | `heuristicAgent.ts` | 베이스라인. 가중합 평가함수(가중치는 상수로 시작, M4에서 로그 기반 조정) |
-| `layaHttpAgent.ts` | M3. `laya-serve`의 `POST /v1/systemone` 호출(fetch). 타임아웃·폴백 내장 |
+| `layaHttpAgent.ts` | M3. `laya-serve`의 `POST /v1/systemone` 호출(fetch). 타임아웃 내장. `danger` noul이 true면 패망 확정으로 보고 에피소드 중단, `min_confidence` 설정 시 서버 기권 게이트 적용. 후보 1개(forced move)는 모델 호출 생략 |
 | `layaOnnxAgent.ts` | M5. 벤더링한 `laya-ts` 사용. §8 참조 |
 
 공통 규칙:

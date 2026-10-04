@@ -125,6 +125,12 @@ export function LayaStatusPanel({
           value={monitor.lastChoice || '-'}
         />
         <Row
+          label={t('game.lastDanger')}
+          value={
+            monitor.lastDanger === null ? '-' : String(monitor.lastDanger)
+          }
+        />
+        <Row
           label={t('game.lastConfidence')}
           value={
             monitor.lastConfidence === null

@@ -34,6 +34,7 @@ describe('TetrisTab', () => {
       screen.queryByLabelText('에이전트'),
     ).toBeNull();
     screen.getByLabelText('Laya URL');
+    screen.getByLabelText('최소 확신도');
     screen.getByLabelText('속도');
     screen.getByLabelText('최대 스텝');
   });
@@ -79,6 +80,6 @@ describe('TetrisTab', () => {
 
   it('offers the benchmark action with progress support', () => {
     setup();
-    screen.getByRole('button', { name: '벤치마크 100' });
+    screen.getByRole('button', { name: '벤치마크' });
   });
 });

@@ -159,6 +159,85 @@ describe('createLayaHttpAgent', () => {
     ).rejects.toThrow();
   });
 
+  it('abstains when danger reports a lost position', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okPayload({
+            answers: {
+              place: { choice: topId, answer_confidence: 0.9 },
+              danger: { type: 'noul', noul: true, confidence: 0.7 },
+            },
+          }),
+        ),
+      ),
+    );
+    const d = await createLayaHttpAgent().decide(snap, cands);
+    expect(d.abstained).toBe(true);
+    const raw = d.raw as { danger: boolean | null; dangerConfidence: number | null };
+    expect(raw.danger).toBe(true);
+    expect(raw.dangerConfidence).toBe(0.7);
+  });
+
+  it('keeps playing when danger reports a live position', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okPayload({
+            answers: {
+              place: { choice: topId, answer_confidence: 0.9 },
+              danger: { type: 'noul', noul: false },
+            },
+          }),
+        ),
+      ),
+    );
+    const d = await createLayaHttpAgent().decide(snap, cands);
+    expect(d.abstained).toBe(false);
+    expect(
+      (d.raw as { danger: boolean | null }).danger,
+    ).toBe(false);
+  });
+
+  it('treats a missing or malformed danger answer as unknown', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    for (const danger of [
+      undefined,
+      { type: 'noul' },
+      { type: 'noul', noul: 'yes' },
+      { type: 'choice', noul: true },
+    ]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            okPayload({
+              answers: {
+                place: { choice: topId, answer_confidence: 0.9 },
+                ...(danger === undefined ? {} : { danger }),
+              },
+            }),
+          ),
+        ),
+      );
+      const d = await createLayaHttpAgent().decide(snap, cands);
+      expect(d.abstained).toBe(false);
+      expect(
+        (d.raw as { danger: boolean | null }).danger,
+      ).toBeNull();
+    }
+  });
+
   it('throws on an unknown choice', async () => {
     const { snap, active } = fixture();
     const cands = enumerateCandidates(snap.board, active);

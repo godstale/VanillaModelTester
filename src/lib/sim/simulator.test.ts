@@ -56,6 +56,29 @@ function throwingAgent(): DecisionAgent {
   };
 }
 
+// Two stay-in-place options so the agent is actually consulted.
+function twoStay(): CandidateEnumerator {
+  return (_board: Board, active: ActivePiece): CandidateMove[] => {
+    const base: CandidateMove = {
+      id: 'a-stay',
+      rot: active.rot,
+      x: active.x,
+      features: {
+        rot: active.rot,
+        x: active.x,
+        landingY: active.y,
+        linesCleared: 0,
+        holes: 0,
+        aggregateHeight: 0,
+        bumpiness: 0,
+        maxHeight: 0,
+      },
+      actions: [],
+    };
+    return [base, { ...base, id: 'b-stay' }];
+  };
+}
+
 function withoutTiming(stats: EpisodeStats): EpisodeStats {
   // durationMs is wall-clock measured; neutralize it for the comparison.
   return { ...stats, durationMs: 0 };
@@ -69,8 +92,9 @@ describe('Simulator', () => {
     expect(stats.decisions).toBe(5);
     expect(stats.fallbacks).toBe(0);
     expect(stats.ended).toBe('maxSteps');
-    expect(stats.avgConfidence).toBeCloseTo(0.8);
-    expect(stats.avgLatencyMs).toBeCloseTo(5);
+    // A single candidate skips the agent: synthetic confidence 1, no latency.
+    expect(stats.avgConfidence).toBeCloseTo(1);
+    expect(stats.avgLatencyMs).toBeCloseTo(0);
   });
 
   it('produces identical stats for the same seed', async () => {
@@ -80,12 +104,21 @@ describe('Simulator', () => {
   });
 
   it('stops the episode when the agent throws instead of rescuing', async () => {
-    const sim = new Simulator(throwingAgent(), 42, { maxSteps: 3 }, singleStay);
+    const sim = new Simulator(throwingAgent(), 42, { maxSteps: 3 }, twoStay());
     const stats = await sim.run();
     expect(stats.steps).toBe(0);
     expect(stats.fallbacks).toBe(1);
     expect(stats.decisions).toBe(0);
     expect(stats.ended).toBe('laya-error');
+  });
+
+  it('plays forced single-candidate moves without consulting the agent', async () => {
+    const sim = new Simulator(throwingAgent(), 42, { maxSteps: 3 }, singleStay);
+    const stats = await sim.run();
+    expect(stats.steps).toBe(3);
+    expect(stats.decisions).toBe(3);
+    expect(stats.fallbacks).toBe(0);
+    expect(stats.ended).toBe('maxSteps');
   });
 
   it('returns ended when the game is already over', async () => {

@@ -50,7 +50,30 @@ function freshSeed(): number {
 type AutoSpeed = '1x' | '10x' | 'max';
 
 const LAYA_BASE_URL_KEY = 'laya.baseUrl';
+const LAYA_MIN_CONFIDENCE_KEY = 'laya.minConfidence';
 const LAYA_DEFAULT_MAX_STEPS = 300;
+
+function readLayaMinConfidence(): string {
+  try {
+    return localStorage.getItem(LAYA_MIN_CONFIDENCE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// Empty means the server-side abstention gate is off. Otherwise the value is
+// clamped to [0, 1] and sent as `min_confidence`: answers below it come back
+// marked abstained, which stops the episode.
+function parseMinConfidence(value: string): number | undefined {
+  if (value.trim() === '') {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  return Math.min(1, Math.max(0, parsed));
+}
 
 function endedKey(ended: EpisodeStats['ended']): string {
   if (ended === 'laya-error') return 'game.endedLayaError';
@@ -66,7 +89,7 @@ function readLayaBaseUrl(): string {
   }
 }
 
-const BENCH_EPISODES = 100;
+const BENCH_EPISODES = 10;
 const BENCH_BASE_SEED = 20261004;
 
 // Same canvas-hex-palette rationale as BoardCanvas: raw colors for game
@@ -141,6 +164,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   } | null>(null);
   const [maxSteps, setMaxSteps] = useState(LAYA_DEFAULT_MAX_STEPS);
   const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
+  const [minConfidence, setMinConfidence] = useState(readLayaMinConfidence);
   const simRef = useRef<Simulator | null>(null);
   const runRef = useRef<{ seed: number; steps: StepRecord[] }>({
     seed: 0,
@@ -268,8 +292,14 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speed, autoRunning]);
 
-  const buildMonitoredAgent = (baseUrl: string): DecisionAgent => {
-    const inner = createLayaHttpAgent(baseUrl);
+  const buildMonitoredAgent = (
+    baseUrl: string,
+    minConf: number | undefined,
+  ): DecisionAgent => {
+    const inner =
+      minConf === undefined
+        ? createLayaHttpAgent(baseUrl)
+        : createLayaHttpAgent(baseUrl, { minConfidence: minConf });
     return {
       name: inner.name,
       decide: async (snap, cands) => {
@@ -278,7 +308,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         try {
           const decision = await inner.decide(snap, cands);
           const raw = decision.raw as
-            | { stateText?: unknown; candidatesText?: unknown }
+            | {
+                stateText?: unknown;
+                candidatesText?: unknown;
+                danger?: unknown;
+              }
             | undefined;
           emitMonitor({
             type: 'success',
@@ -291,6 +325,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
                 : '',
             choice: decision.moveId,
             confidence: decision.confidence,
+            danger: typeof raw?.danger === 'boolean' ? raw.danger : null,
             latencyMs: decision.latencyMs ?? performance.now() - started,
           });
           return decision;
@@ -312,13 +347,14 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     seed: number,
     stepsLimit: number = maxSteps,
     baseUrl: string = layaBaseUrl,
+    minConf: number | undefined = parseMinConfidence(minConfidence),
   ) => {
     genRef.current += 1;
     busyRef.current = false;
     autoStartRef.current = Date.now();
     const collected: StepRecord[] = [];
     const sim = new Simulator(
-      buildMonitoredAgent(baseUrl),
+      buildMonitoredAgent(baseUrl, minConf),
       seed,
       { maxSteps: stepsLimit },
       undefined,
@@ -363,6 +399,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     }
   };
 
+  const handleMinConfidenceChange = (value: string) => {
+    setMinConfidence(value);
+    try {
+      localStorage.setItem(LAYA_MIN_CONFIDENCE_KEY, value);
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    setupAutoSim(freshSeed(), maxSteps, layaBaseUrl, parseMinConfidence(value));
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
+    }
+  };
+
   const handleSpeedChange = (next: AutoSpeed) => {
     if (next === speed) return;
     const involvesMax = next === 'max' || speed === 'max';
@@ -385,8 +435,12 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setBench(null);
     setBenchProgress({ done: 0, total: BENCH_EPISODES });
     try {
+      const minConf = parseMinConfidence(minConfidence);
       const { summary } = await runHeadless(
-        () => createLayaHttpAgent(layaBaseUrl),
+        () =>
+          minConf === undefined
+            ? createLayaHttpAgent(layaBaseUrl)
+            : createLayaHttpAgent(layaBaseUrl, { minConfidence: minConf }),
         {
           episodes: BENCH_EPISODES,
           baseSeed: BENCH_BASE_SEED,
@@ -479,6 +533,23 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             />
             <span className="text-[11px] leading-relaxed">
               {t('game.layaHint')}
+            </span>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t('game.minConfidence')}
+            <input
+              aria-label={t('game.minConfidence')}
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={minConfidence}
+              onChange={(e) => handleMinConfidenceChange(e.target.value)}
+              placeholder={t('game.minConfidenceOff')}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+            />
+            <span className="text-[11px] leading-relaxed">
+              {t('game.minConfidenceHint')}
             </span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
