@@ -283,20 +283,22 @@ function WorkspacePane({
         onDrop={(e) => onContentDrop(e, pane)}
         className="flex-1 min-h-0 relative overflow-hidden"
       >
-        {!workspaceRoot ? (
-          <WelcomeGuide />
-        ) : paneTabs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full w-full text-center text-muted-foreground gap-3">
-            <Compass className="h-10 w-10 opacity-30" />
-            <p className="text-xs">{t('workspace.noTabs')}</p>
-            <Button
-              size="sm"
-              onClick={() => onNewTab(pane)}
-              className="text-xs cursor-pointer"
-            >
-              {t('workspace.openWelcome')}
-            </Button>
-          </div>
+        {paneTabs.length === 0 ? (
+          workspaceRoot ? (
+            <div className="flex flex-col items-center justify-center h-full w-full text-center text-muted-foreground gap-3">
+              <Compass className="h-10 w-10 opacity-30" />
+              <p className="text-xs">{t('workspace.noTabs')}</p>
+              <Button
+                size="sm"
+                onClick={() => onNewTab(pane)}
+                className="text-xs cursor-pointer"
+              >
+                {t('workspace.openWelcome')}
+              </Button>
+            </div>
+          ) : (
+            <WelcomeGuide />
+          )
         ) : (
           paneTabs.map((tab) => {
             const isHidden = tab.id !== activeTabId;

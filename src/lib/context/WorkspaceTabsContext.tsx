@@ -56,6 +56,11 @@ function generateTabId(type: string): string {
   return `${type}:${Date.now()}-${tabCounter}`;
 }
 
+// Tabs that do not need a project folder (no file access, no workspace scope).
+function isWorkspaceIndependentTab(tab: WorkspaceTab): boolean {
+  return tab.type === 'welcome' || tab.type === 'game';
+}
+
 export function WorkspaceTabsProvider({
   children,
 }: {
@@ -78,29 +83,47 @@ export function WorkspaceTabsProvider({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isWithoutWorkspace = hasWorkspaceContext && !workspaceRoot;
-  const tabs = isWithoutWorkspace ? [] : internalTabs;
-  const activeTabId = isWithoutWorkspace ? null : internalActiveTabId;
+  // Without a folder only workspace-independent tabs (welcome/game) stay
+  // visible. File tabs (editor/image-viewer) need a workspace scope.
+  const tabs = isWithoutWorkspace
+    ? internalTabs.filter(isWorkspaceIndependentTab)
+    : internalTabs;
+  const activeTabId = isWithoutWorkspace
+    ? (internalActiveTabId &&
+      tabs.some((t) => t.id === internalActiveTabId)
+        ? internalActiveTabId
+        : (tabs.filter((t) => (t.pane ?? 'primary') === 'primary')[0]?.id ??
+          null))
+    : internalActiveTabId;
   const secondaryActiveTabId = isWithoutWorkspace
-    ? null
+    ? (internalSecondaryActiveTabId &&
+      tabs.some((t) => t.id === internalSecondaryActiveTabId)
+        ? internalSecondaryActiveTabId
+        : null)
     : internalSecondaryActiveTabId;
 
   const primaryTabs = tabs.filter((t) => (t.pane ?? 'primary') === 'primary');
   const secondaryTabs = tabs.filter((t) => t.pane === 'secondary');
   const isSplit = secondaryTabs.length > 0 && primaryTabs.length > 0;
 
-  // Restore saved tabs from app_settings on mount
+  // Restore saved tabs from app_settings on mount.
+  // Without a folder only workspace-independent tabs are restored;
+  // with a folder the project DB row is restored as-is.
   useEffect(() => {
     let active = true;
     void (async () => {
       try {
         const settings = await settingsRepo.getSettings();
-        if (active && (!hasWorkspaceContext || workspaceRoot)) {
-          if (settings.openTabs && settings.openTabs.length > 0) {
-            setInternalTabs(settings.openTabs);
-            const savedPrimary = settings.openTabs.filter(
+        if (active) {
+          const restored = !hasWorkspaceContext || workspaceRoot
+            ? (settings.openTabs ?? [])
+            : (settings.openTabs ?? []).filter(isWorkspaceIndependentTab);
+          if (restored.length > 0) {
+            setInternalTabs(restored);
+            const savedPrimary = restored.filter(
               (t) => (t.pane ?? 'primary') === 'primary',
             );
-            const savedSecondary = settings.openTabs.filter(
+            const savedSecondary = restored.filter(
               (t) => t.pane === 'secondary',
             );
             setInternalActiveTabId(
@@ -130,9 +153,11 @@ export function WorkspaceTabsProvider({
     };
   }, [hasWorkspaceContext, workspaceRoot]);
 
-  // 500ms debounced persistence to app_settings
+  // 500ms debounced persistence to app_settings.
+  // Visible tabs are persisted: with a folder that's the project row,
+  // without a folder that's the global row (settingsRepo falls back).
   useEffect(() => {
-    if (!isLoaded || isWithoutWorkspace) return;
+    if (!isLoaded) return;
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -140,8 +165,8 @@ export function WorkspaceTabsProvider({
 
     debounceTimerRef.current = setTimeout(() => {
       void settingsRepo.updateSettings({
-        openTabs: internalTabs,
-        activeTabId: internalActiveTabId,
+        openTabs: tabs,
+        activeTabId,
       });
     }, 500);
 
@@ -150,14 +175,20 @@ export function WorkspaceTabsProvider({
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [internalTabs, internalActiveTabId, isLoaded, isWithoutWorkspace]);
+  }, [tabs, activeTabId, isLoaded]);
 
   const openTab = useCallback(
     (
       tab: Omit<WorkspaceTab, 'id'> & { id?: string },
       pane: 'primary' | 'secondary' = 'primary',
     ) => {
-      if (hasWorkspaceContext && !workspaceRoot) {
+      // File tabs need a workspace scope; welcome/game run standalone.
+      if (
+        hasWorkspaceContext &&
+        !workspaceRoot &&
+        tab.type !== 'welcome' &&
+        tab.type !== 'game'
+      ) {
         return '';
       }
       const targetId = tab.id ?? generateTabId(tab.type);
