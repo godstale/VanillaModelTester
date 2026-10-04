@@ -5,6 +5,7 @@ import {
   Image as ImageIcon,
   Compass,
   Gamepad2,
+  Server,
   X,
   Plus,
   Columns2,
@@ -20,6 +21,7 @@ import { EditorTab } from '@/components/workspace/EditorTab';
 import { ImageViewerTab } from '@/components/workspace/ImageViewerTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
 import { TetrisTab } from '@/components/game/TetrisTab';
+import { LayaServiceTab } from '@/components/laya/LayaServiceTab';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -31,6 +33,7 @@ const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
   'image-viewer': ImageIcon,
   welcome: Compass,
   game: Gamepad2,
+  'laya-service': Server,
 };
 
 function renderTabContent(tab: WorkspaceTab) {
@@ -43,6 +46,8 @@ function renderTabContent(tab: WorkspaceTab) {
       return <WelcomeGuide />;
     case 'game':
       return <TetrisTab tab={tab} />;
+    case 'laya-service':
+      return <LayaServiceTab tab={tab} />;
     default:
       return null;
   }

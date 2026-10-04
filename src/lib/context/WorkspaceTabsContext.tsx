@@ -58,7 +58,9 @@ function generateTabId(type: string): string {
 
 // Tabs that do not need a project folder (no file access, no workspace scope).
 function isWorkspaceIndependentTab(tab: WorkspaceTab): boolean {
-  return tab.type === 'welcome' || tab.type === 'game';
+  return (
+    tab.type === 'welcome' || tab.type === 'game' || tab.type === 'laya-service'
+  );
 }
 
 export function WorkspaceTabsProvider({
@@ -182,12 +184,13 @@ export function WorkspaceTabsProvider({
       tab: Omit<WorkspaceTab, 'id'> & { id?: string },
       pane: 'primary' | 'secondary' = 'primary',
     ) => {
-      // File tabs need a workspace scope; welcome/game run standalone.
+      // File tabs need a workspace scope; welcome/game/laya-service run standalone.
       if (
         hasWorkspaceContext &&
         !workspaceRoot &&
         tab.type !== 'welcome' &&
-        tab.type !== 'game'
+        tab.type !== 'game' &&
+        tab.type !== 'laya-service'
       ) {
         return '';
       }

@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
-import { useSafeWorkspace } from './WorkspaceContext';
 
 export interface SidePanelContextValue {
   activeView: SidePanelView;
@@ -25,65 +24,34 @@ const SidePanelContext = createContext<SidePanelContextValue | undefined>(
 
 export function SidePanelProvider({
   children,
-  initialView = 'explorer',
+  initialView = null,
 }: {
   children: React.ReactNode;
   initialView?: SidePanelView;
 }) {
-  const workspace = useSafeWorkspace();
-  const hasWorkspaceContext = workspace !== null;
-  const workspaceRoot = workspace?.workspaceRoot ?? null;
   const panelRef = useRef<ImperativePanelHandle | null>(null);
 
-  const [internalView, setInternalView] = useState<SidePanelView>(() => {
-    if (hasWorkspaceContext && !workspaceRoot) {
-      return 'explorer';
-    }
-    return initialView;
-  });
-
-  const activeView: SidePanelView =
-    hasWorkspaceContext && !workspaceRoot ? 'explorer' : internalView;
-
-  const handleSetActiveView = useCallback(
-    (view: SidePanelView) => {
-      if (hasWorkspaceContext && !workspaceRoot) {
-        return;
-      }
-      setInternalView(view);
-    },
-    [hasWorkspaceContext, workspaceRoot],
+  const [internalView, setInternalView] = useState<SidePanelView>(
+    () => initialView,
   );
+
+  const activeView: SidePanelView = internalView;
+
+  const handleSetActiveView = useCallback((view: SidePanelView) => {
+    setInternalView(view);
+  }, []);
 
   const toggleView = useCallback(
     (view: Exclude<SidePanelView, null>) => {
-      if (hasWorkspaceContext && !workspaceRoot) {
-        return;
-      }
       setInternalView((prev) => (prev === view ? null : view));
     },
-    [hasWorkspaceContext, workspaceRoot],
+    [],
   );
 
   const togglePanel = useCallback(() => {
-    if (hasWorkspaceContext && !workspaceRoot) {
-      panelRef.current?.expand();
-      setInternalView('explorer');
-      return;
-    }
-    const panel = panelRef.current;
-    if (!panel) {
-      setInternalView((prev) => (prev ? null : 'explorer'));
-      return;
-    }
-    if (panel.isCollapsed()) {
-      panel.expand();
-      setInternalView((prev) => prev ?? 'explorer');
-    } else {
-      panel.collapse();
-      setInternalView(null);
-    }
-  }, [hasWorkspaceContext, workspaceRoot]);
+    // No visible panel remains; toggling only flips the selection state.
+    setInternalView((prev) => (prev ? null : 'game'));
+  }, []);
 
   return (
     <SidePanelContext.Provider

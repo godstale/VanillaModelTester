@@ -1,76 +1,67 @@
 import { useRef, useEffect } from 'react';
 import { TopMenuBar } from '@/components/layout/TopMenuBar';
 import { ActivityBar } from '@/components/layout/ActivityBar';
-import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout';
-import { SidePanel } from '@/components/sidepanel/SidePanel';
 import { CenterWorkspace } from '@/components/workspace/CenterWorkspace';
 import {
   SidePanelProvider,
-  useSidePanel,
 } from '@/lib/context/SidePanelContext';
 import {
   WorkspaceTabsProvider,
   useWorkspaceTabs,
 } from '@/lib/context/WorkspaceTabsContext';
-import {
-  WorkspaceProvider,
-  useWorkspace,
-} from '@/lib/context/WorkspaceContext';
-import { TrustWorkspaceDialog } from '@/components/workspace/TrustWorkspaceDialog';
+import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
+import { GAME_TAB_ID, LAYA_SERVICE_TAB_ID } from '@/lib/types/workspaceTab';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 function WorkspaceContent() {
   useKeyboardShortcuts();
   const { t } = useLanguage();
-  const { workspaceRoot } = useWorkspace();
-  const { activeView, setActiveView, panelRef } = useSidePanel();
-  const { tabs, openTab, isTabsLoaded } = useWorkspaceTabs();
-  const sidePanelRef = panelRef;
+  const { tabs, activeTabId, openTab, isTabsLoaded } = useWorkspaceTabs();
   const autoOpenedRef = useRef(false);
 
-  // Open a welcome tab on startup when a folder is active but no tabs remain.
+  // Open the Tetris tab on startup when no tabs remain.
   useEffect(() => {
     if (autoOpenedRef.current) return;
     if (!isTabsLoaded) return;
-    if (workspaceRoot && tabs.length === 0) {
+    if (tabs.length === 0) {
       autoOpenedRef.current = true;
-      openTab({ type: 'welcome', title: t('workspace.welcomeTitle') });
+      openTab({
+        id: GAME_TAB_ID,
+        type: 'game',
+        title: t('game.title'),
+        meta: { sessionId: 'auto' },
+      });
     }
-  }, [isTabsLoaded, openTab, tabs.length, workspaceRoot, t]);
+  }, [isTabsLoaded, openTab, tabs.length, t]);
 
-  // Without a folder, force the explorer view and expand the panel.
-  useEffect(() => {
-    if (!workspaceRoot) {
-      setActiveView('explorer');
-      if (sidePanelRef.current?.isCollapsed()) {
-        sidePanelRef.current.expand();
-      }
-    }
-  }, [workspaceRoot, setActiveView, sidePanelRef]);
-
+  // The activity bar opens tabs directly; there is no left panel.
   const handleActivityBarSelect = (view: Exclude<SidePanelView, null>) => {
-    if (!workspaceRoot) {
-      if (view !== 'explorer') return;
-      if (sidePanelRef.current?.isCollapsed()) {
-        sidePanelRef.current.expand();
-      }
-      setActiveView('explorer');
-      return;
-    }
-    const panel = sidePanelRef.current;
-    if (!panel) return;
-    if (activeView === view && !panel.isCollapsed()) {
-      panel.collapse();
-      setActiveView(null);
+    if (view === 'game') {
+      openTab({
+        id: GAME_TAB_ID,
+        type: 'game',
+        title: t('game.title'),
+        meta: { sessionId: 'auto' },
+      });
     } else {
-      if (panel.isCollapsed()) {
-        panel.expand();
-      }
-      setActiveView(view);
+      openTab({
+        id: LAYA_SERVICE_TAB_ID,
+        type: 'laya-service',
+        title: t('layaService.title'),
+        meta: {},
+      });
     }
   };
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const activeView: SidePanelView =
+    activeTab?.type === 'game'
+      ? 'game'
+      : activeTab?.type === 'laya-service'
+        ? 'laya-service'
+        : null;
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -85,11 +76,7 @@ function WorkspaceContent() {
           onSelect={handleActivityBarSelect}
         />
         <div className="flex-1 min-w-0 h-full overflow-hidden">
-          <WorkspaceLayout
-            sidePanelRef={sidePanelRef}
-            sidePanel={<SidePanel activeView={activeView} />}
-            centerWorkspace={<CenterWorkspace />}
-          />
+          <CenterWorkspace />
         </div>
       </div>
     </div>
@@ -102,7 +89,6 @@ export function Workspace() {
       <WorkspaceTabsProvider>
         <SidePanelProvider>
           <WorkspaceContent />
-          <TrustWorkspaceDialog />
         </SidePanelProvider>
       </WorkspaceTabsProvider>
     </WorkspaceProvider>

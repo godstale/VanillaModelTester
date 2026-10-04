@@ -1,4 +1,4 @@
-import { Files, Settings, type LucideIcon } from 'lucide-react';
+import { Gamepad2, Server, Settings, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
@@ -8,7 +8,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ActivityBarProps {
@@ -22,16 +21,15 @@ interface ActivityBarItem {
   labelKey: string;
 }
 
-// Add or remove entries here to change the side panels.
-// Each view must be handled in SidePanel.tsx.
+// The app is a model-testing environment: the bar opens tabs directly,
+// there is no left panel and no folder requirement.
 const ITEMS: ActivityBarItem[] = [
-  { view: 'explorer', icon: Files, labelKey: 'activityBar.explorer' },
+  { view: 'game', icon: Gamepad2, labelKey: 'activityBar.game' },
+  { view: 'laya-service', icon: Server, labelKey: 'activityBar.layaService' },
 ];
 
 export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
   const { t } = useLanguage();
-  const workspace = useSafeWorkspace();
-  const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -42,26 +40,19 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
         <div className="flex flex-col items-center gap-1 w-full">
           {ITEMS.map(({ view, icon: Icon, labelKey }) => {
             const isActive = activeView === view;
-            const isItemDisabled = !hasWorkspace && view !== 'explorer';
             const title = t(labelKey);
-            const disabledTitle = `${title} ${t('activityBar.needFolder')}`;
             return (
               <Tooltip key={view}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    disabled={isItemDisabled}
                     onClick={() => {
-                      if (!isItemDisabled) {
-                        onSelect(view);
-                      }
+                      onSelect(view);
                     }}
-                    aria-label={isItemDisabled ? disabledTitle : title}
+                    aria-label={title}
                     className={cn(
                       'w-10 h-10 flex items-center justify-center rounded-md transition-colors relative',
-                      isItemDisabled
-                        ? 'text-muted-foreground/30 cursor-not-allowed hover:bg-transparent'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.08] cursor-pointer',
+                      'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.08] cursor-pointer',
                       isActive &&
                         'text-primary bg-primary/10 hover:text-primary hover:bg-primary/15 font-medium',
                     )}
@@ -70,7 +61,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{isItemDisabled ? disabledTitle : title}</p>
+                  <p>{title}</p>
                 </TooltipContent>
               </Tooltip>
             );
@@ -80,31 +71,16 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
         <div className="flex flex-col items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              {!hasWorkspace ? (
-                <button
-                  type="button"
-                  disabled
-                  aria-label={t('activityBar.settingsNeedFolder')}
-                  className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground/30 cursor-not-allowed"
-                >
-                  <Settings className="h-5 w-5" />
-                </button>
-              ) : (
-                <Link
-                  to="/settings"
-                  aria-label={t('activityBar.settings')}
-                  className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/[0.08] transition-colors cursor-pointer"
-                >
-                  <Settings className="h-5 w-5" />
-                </Link>
-              )}
+              <Link
+                to="/settings"
+                aria-label={t('activityBar.settings')}
+                className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/[0.08] transition-colors cursor-pointer"
+              >
+                <Settings className="h-5 w-5" />
+              </Link>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>
-                {!hasWorkspace
-                  ? t('activityBar.settingsAvailable')
-                  : t('activityBar.settings')}
-              </p>
+              <p>{t('activityBar.settings')}</p>
             </TooltipContent>
           </Tooltip>
         </div>

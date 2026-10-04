@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useSidePanel } from '@/lib/context/SidePanelContext';
-import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { GAME_TAB_ID } from '@/lib/types/workspaceTab';
 
 export interface KeyboardShortcutHandlers {
   onNewTab?: () => void;
@@ -24,8 +24,7 @@ export function useKeyboardShortcuts(
 ): void {
   const navigate = useNavigate();
   const { activeTabId, closeTab, openTab } = useWorkspaceTabs();
-  const { togglePanel, setActiveView } = useSidePanel();
-  const workspace = useSafeWorkspace();
+  const { togglePanel } = useSidePanel();
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -64,9 +63,12 @@ export function useKeyboardShortcuts(
 
       if (isMod && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault();
-        if (workspace?.workspaceRoot) {
-          setActiveView('explorer');
-        }
+        openTab({
+          id: GAME_TAB_ID,
+          type: 'game',
+          title: t('game.title'),
+          meta: { sessionId: 'auto' },
+        });
         return;
       }
 
@@ -96,8 +98,6 @@ export function useKeyboardShortcuts(
     closeTab,
     openTab,
     togglePanel,
-    setActiveView,
-    workspace,
     t,
   ]);
 }
