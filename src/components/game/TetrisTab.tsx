@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BoardCanvas } from '@/components/game/BoardCanvas';
+import { LayaStatusPanel } from '@/components/game/LayaStatusPanel';
+import {
+  initialLayaMonitor,
+  reduceLayaMonitor,
+} from '@/components/game/layaMonitor';
+import type { LayaMonitorEvent } from '@/components/game/layaMonitor';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { EngineState, PieceKind } from '@/lib/tetris/types';
 import { cellFor, cellsOf, gravityMsForLevel } from '@/lib/tetris/constants';
@@ -145,6 +151,12 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const [speed, setSpeed] = useState<AutoSpeed>('1x');
   const [autoBoard, setAutoBoard] = useState<EngineState | null>(null);
   const [autoStats, setAutoStats] = useState<EpisodeStats | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoAvg, setAutoAvg] = useState<{
+    latencyMs: number | null;
+    confidence: number | null;
+  }>({ latencyMs: null, confidence: null });
+  const [layaMonitor, setLayaMonitor] = useState(initialLayaMonitor);
   const [autoCounters, setAutoCounters] = useState({
     steps: 0,
     decisions: 0,
@@ -182,6 +194,10 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     return () => window.clearInterval(id);
   }, [active, engine.level, mode]);
 
+  const emitMonitor = useCallback((event: LayaMonitorEvent) => {
+    setLayaMonitor((prev) => reduceLayaMonitor(prev, event));
+  }, []);
+
   // Mirrors simulator state into render state; effects drive it, render reads it.
   const syncAutoView = (sim: Simulator) => {
     setAutoBoard(sim.state);
@@ -190,6 +206,15 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       decisions: sim.decisionCount,
       fallbacks: sim.fallbackCount,
     });
+    try {
+      const live = sim.stats(0);
+      setAutoAvg({
+        latencyMs: live.decisions === 0 ? null : live.avgLatencyMs,
+        confidence: live.decisions === 0 ? null : live.avgConfidence,
+      });
+    } catch {
+      // Stats must never break the render path.
+    }
   };
 
   // Finished episodes are persisted for offline analysis; a storage
@@ -206,9 +231,18 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     })();
   };
 
+  const finishAutoEpisode = (sim: Simulator) => {
+    const stats = sim.stats(Date.now() - autoStartRef.current);
+    setAutoStats(stats);
+    setAutoRunning(false);
+    emitMonitor({ type: 'ended' });
+    persistEpisode(stats, runRef.current.steps);
+  };
+
   // 1x/10x auto stepping: one stepOnce per tick, re-rendered each step.
+  // Gated by autoRunning so entering auto mode never starts by itself.
   useEffect(() => {
-    if (mode !== 'auto' || speed === 'max') return;
+    if (mode !== 'auto' || speed === 'max' || !autoRunning) return;
     let cancelled = false;
     let timer = 0;
     const schedule = (delay: number) => {
@@ -229,9 +263,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         if (cancelled) return;
         syncAutoView(sim);
         if (result === 'ended') {
-          const stats = sim.stats(Date.now() - autoStartRef.current);
-          setAutoStats(stats);
-          persistEpisode(stats, runRef.current.steps);
+          finishAutoEpisode(sim);
           return;
         }
       } finally {
@@ -253,11 +285,12 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mode, speed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, speed, autoRunning]);
 
   // max auto speed: no interval, one run() then a single render.
   useEffect(() => {
-    if (mode !== 'auto' || speed !== 'max') return;
+    if (mode !== 'auto' || speed !== 'max' || !autoRunning) return;
     const sim = simRef.current;
     if (sim === null) return;
     const gen = genRef.current;
@@ -266,28 +299,76 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       if (cancelled || genRef.current !== gen) return;
       syncAutoView(sim);
       setAutoStats(result);
+      setAutoRunning(false);
+      emitMonitor({ type: 'ended' });
       persistEpisode(result, runRef.current.steps);
     });
     return () => {
       cancelled = true;
     };
-  }, [mode, speed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, speed, autoRunning]);
 
   const focusBoard = () => {
     wrapRef.current?.focus();
   };
 
-  const beginAuto = (
+  const buildMonitoredAgent = (
+    kind: AgentKind,
+    seed: number,
+    baseUrl: string,
+  ): DecisionAgent => {
+    const inner = makeLocalAgent(kind, seed, baseUrl);
+    return {
+      name: inner.name,
+      decide: async (snap, cands) => {
+        emitMonitor({ type: 'request', stepIndex: snap.stepIndex });
+        const started = performance.now();
+        try {
+          const decision = await inner.decide(snap, cands);
+          const raw = decision.raw as
+            | { stateText?: unknown; candidatesText?: unknown }
+            | undefined;
+          emitMonitor({
+            type: 'success',
+            stepIndex: snap.stepIndex,
+            stateText:
+              typeof raw?.stateText === 'string' ? raw.stateText : '',
+            candidatesText:
+              typeof raw?.candidatesText === 'string'
+                ? raw.candidatesText
+                : '',
+            choice: decision.moveId,
+            confidence: decision.confidence,
+            latencyMs: decision.latencyMs ?? performance.now() - started,
+          });
+          return decision;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          emitMonitor({
+            type: 'error',
+            stepIndex: snap.stepIndex,
+            message,
+            latencyMs: performance.now() - started,
+          });
+          throw err;
+        }
+      },
+    };
+  };
+
+  const setupAutoSim = (
     seed: number,
     agent: AgentKind = agentKind,
     stepsLimit: number = maxSteps,
     baseUrl: string = layaBaseUrl,
   ) => {
     genRef.current += 1;
+    busyRef.current = false;
     autoStartRef.current = Date.now();
     const collected: StepRecord[] = [];
     const sim = new Simulator(
-      makeLocalAgent(agent, seed, baseUrl),
+      buildMonitoredAgent(agent, seed, baseUrl),
       seed,
       { maxSteps: stepsLimit },
       undefined,
@@ -301,13 +382,22 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     simRef.current = sim;
     runRef.current = { seed, steps: collected };
     setAutoStats(null);
+    setAutoAvg({ latencyMs: null, confidence: null });
+    emitMonitor({ type: 'reset' });
     syncAutoView(sim);
   };
 
   const handleModeChange = (next: 'manual' | 'auto') => {
     if (next === mode) return;
     if (next === 'auto') {
-      beginAuto(freshSeed());
+      // Enter auto mode idle so the user can adjust settings first.
+      setupAutoSim(freshSeed());
+      setAutoRunning(false);
+    } else {
+      // Leaving auto mode always halts the loop.
+      genRef.current += 1;
+      busyRef.current = false;
+      setAutoRunning(false);
     }
     setMode(next);
     focusBoard();
@@ -321,7 +411,12 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         : maxSteps;
     setMaxSteps(switched);
     if (mode === 'auto') {
-      beginAuto(freshSeed(), next, switched);
+      // Rebuild the idle preview; keep running only if already running.
+      setupAutoSim(freshSeed(), next, switched);
+      if (autoRunning) {
+        autoStartRef.current = Date.now();
+        setAutoRunning(true);
+      }
     }
     focusBoard();
   };
@@ -331,7 +426,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     if (!Number.isFinite(next) || next < 1) return;
     setMaxSteps(next);
     if (mode === 'auto') {
-      beginAuto(freshSeed(), agentKind, next);
+      setupAutoSim(freshSeed(), agentKind, next);
+      if (autoRunning) {
+        autoStartRef.current = Date.now();
+        setAutoRunning(true);
+      }
     }
     focusBoard();
   };
@@ -344,7 +443,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       // Private-mode storage may throw; the session value still applies.
     }
     if (mode === 'auto' && agentKind === 'laya') {
-      beginAuto(freshSeed(), agentKind, maxSteps, value);
+      setupAutoSim(freshSeed(), agentKind, maxSteps, value);
+      if (autoRunning) {
+        autoStartRef.current = Date.now();
+        setAutoRunning(true);
+      }
     }
     focusBoard();
   };
@@ -356,7 +459,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     // The max runner cannot be cancelled mid-flight, so transitions
     // involving max restart on a fresh simulator instead of sharing one.
     if (mode === 'auto' && involvesMax) {
-      beginAuto(freshSeed());
+      setupAutoSim(freshSeed());
+      if (autoRunning) {
+        autoStartRef.current = Date.now();
+        setAutoRunning(true);
+      }
     }
     focusBoard();
   };
@@ -403,8 +510,24 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     focusBoard();
   };
 
+  const handleAutoStart = () => {
+    setupAutoSim(freshSeed());
+    autoStartRef.current = Date.now();
+    setAutoRunning(true);
+    focusBoard();
+  };
+
+  const handleAutoStop = () => {
+    genRef.current += 1;
+    busyRef.current = false;
+    setAutoRunning(false);
+    focusBoard();
+  };
+
   const handleAutoRestart = () => {
-    beginAuto(freshSeed());
+    setupAutoSim(freshSeed());
+    autoStartRef.current = Date.now();
+    setAutoRunning(true);
     focusBoard();
   };
 
@@ -633,15 +756,28 @@ export function TetrisTab({ tab }: TetrisTabProps) {
                 </p>
               )}
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleAutoRestart}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t('game.restart')}
-            </Button>
+            {!autoRunning ? (
+              <Button type="button" size="sm" onClick={handleAutoStart}>
+                <Play className="h-3.5 w-3.5" />
+                {t('game.start')}
+              </Button>
+            ) : (
+              <>
+                <Button type="button" size="sm" onClick={handleAutoStop}>
+                  <Square className="h-3.5 w-3.5" />
+                  {t('game.stop')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAutoRestart}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {t('game.restart')}
+                </Button>
+              </>
+            )}
           </div>
         )}
 
@@ -669,6 +805,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
           </p>
         )}
       </div>
+
+      {mode === 'auto' && (
+        <LayaStatusPanel
+          agentKind={agentKind}
+          running={autoRunning}
+          baseUrl={layaBaseUrl}
+          steps={autoCounters.steps}
+          decisions={autoCounters.decisions}
+          fallbacks={autoCounters.fallbacks}
+          avgLatencyMs={autoAvg.latencyMs}
+          avgConfidence={autoAvg.confidence}
+          monitor={layaMonitor}
+        />
+      )}
     </div>
   );
 }
