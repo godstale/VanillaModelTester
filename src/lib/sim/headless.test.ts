@@ -46,4 +46,26 @@ describe('runHeadless', () => {
       stats.reduce((a, s) => a + s.durationMs, 0),
     );
   });
+
+  it('reports progress, yields, and stops early when cancelled', async () => {
+    const progress: Array<[number, number]> = [];
+    const { stats, summary } = await runHeadless(
+      (seed) => mockAgent(`bench-${seed}`),
+      {
+        episodes: 5,
+        baseSeed: 2000,
+        maxSteps: 10,
+        onEpisode: (done, total) => {
+          progress.push([done, total]);
+        },
+        shouldCancel: () => progress.length >= 2,
+      },
+    );
+    expect(stats).toHaveLength(2);
+    expect(progress).toEqual([
+      [1, 5],
+      [2, 5],
+    ]);
+    expect(summary.episodes).toBe(2);
+  });
 });

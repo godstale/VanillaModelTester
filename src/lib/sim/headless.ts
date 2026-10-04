@@ -6,6 +6,16 @@ export interface HeadlessOptions {
   episodes: number;
   baseSeed: number;
   maxSteps: number;
+  /** Called after each finished episode so the UI can show progress. */
+  onEpisode?: (done: number, total: number) => void;
+  /** Polled after each episode; returning true stops the batch early. */
+  shouldCancel?: () => boolean;
+}
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 }
 
 export interface HeadlessResult {
@@ -18,12 +28,19 @@ export async function runHeadless(
   opts: HeadlessOptions,
 ): Promise<HeadlessResult> {
   const stats: EpisodeStats[] = [];
-  for (let i = 0; i < opts.episodes; i += 1) {
+  const total = opts.episodes;
+  for (let i = 0; i < total; i += 1) {
+    if (opts.shouldCancel?.()) {
+      break;
+    }
     const seed = (opts.baseSeed + i) >>> 0;
     const sim = new Simulator(makeAgent(seed), seed, {
       maxSteps: opts.maxSteps,
     });
     stats.push(await sim.run());
+    opts.onEpisode?.(stats.length, total);
+    // A long batch would otherwise starve the render loop and look frozen.
+    await yieldToUi();
   }
 
   let linesSum = 0;
