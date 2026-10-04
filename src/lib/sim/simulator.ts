@@ -1,4 +1,3 @@
-import { COLS } from '../tetris/constants';
 import {
   createGame,
   gravityTick,
@@ -31,7 +30,6 @@ export type CandidateEnumerator = (
 // The agent owns its own HTTP timeout (layaHttpAgent defaults to 10s), so the
 // simulator-level race only guards against agents that never settle.
 const DECIDE_TIMEOUT_MS = 15000;
-const MAX_ROT_ATTEMPTS = 4;
 
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? value : 0;
@@ -130,9 +128,8 @@ export class Simulator {
     }
     const snap = this.snapshot();
     const placed = await this.askAgent(this.agent, snap, candidates);
-    if (placed !== null) {
+    if (placed !== null && this.applyPlacement(placed.target)) {
       this.recordDecision(placed);
-      this.applyPlacement(placed.target);
       this.stepIndex += 1;
       return 'progress';
     }
@@ -243,35 +240,52 @@ export class Simulator {
     }
   }
 
-  private applyPlacement(target: CandidateMove): void {
+  private applyPlacement(target: CandidateMove): boolean {
     let current = this.state;
-    for (
-      let i = 0;
-      i < MAX_ROT_ATTEMPTS &&
-      current.active !== null &&
-      current.active.rot !== target.rot;
-      i += 1
-    ) {
-      const next = rotate(current, 1);
-      current = next.state;
-      if (!next.rotated) {
+    for (const action of target.actions) {
+      if (current.active === null) {
+        return false;
+      }
+      if (action.type === 'drop') {
         break;
+      } else if (action.type === 'left') {
+        const next = move(current, -1, 0);
+        if (!next.moved) {
+          return false;
+        }
+        current = next.state;
+      } else if (action.type === 'right') {
+        const next = move(current, 1, 0);
+        if (!next.moved) {
+          return false;
+        }
+        current = next.state;
+      } else if (action.type === 'down') {
+        const next = move(current, 0, 1);
+        if (!next.moved) {
+          return false;
+        }
+        current = next.state;
+      } else {
+        const next = rotate(current, action.dir);
+        if (!next.rotated) {
+          return false;
+        }
+        current = next.state;
       }
     }
-    for (
-      let i = 0;
-      i < COLS + 4 &&
-      current.active !== null &&
-      current.active.x !== target.x;
-      i += 1
+    // The BFS path guarantees this, but never lock a pose the model did not
+    // choose: a mismatch means the log would lie about the executed landing.
+    const placed = current.active;
+    if (
+      placed === null ||
+      placed.x !== target.x ||
+      placed.y !== target.features.landingY ||
+      placed.rot !== target.rot
     ) {
-      const active = current.active;
-      const next = move(current, target.x > active.x ? 1 : -1, 0);
-      current = next.state;
-      if (!next.moved) {
-        break;
-      }
+      return false;
     }
     this.state = hardDrop(current).state;
+    return true;
   }
 }

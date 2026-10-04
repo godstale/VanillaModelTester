@@ -67,7 +67,7 @@ describe('enumerateCandidates', () => {
     expect(cands.length).toBe(9);
   });
 
-  it('replays actions through engine move/rotate to reach rot/x', () => {
+  it('replays actions through the engine to the exact rest pose', () => {
     const board = createEmptyBoard();
     const active = spawn('T');
     const cands = enumerateCandidates(board, active);
@@ -75,7 +75,9 @@ describe('enumerateCandidates', () => {
     for (const cand of cands) {
       let s = toState(board, { ...active });
       for (const a of cand.actions) {
-        if (a.type === 'left') {
+        if (a.type === 'drop') {
+          continue;
+        } else if (a.type === 'left') {
           const r = move(s, -1, 0);
           expect(r.moved).toBe(true);
           s = r.state;
@@ -83,7 +85,11 @@ describe('enumerateCandidates', () => {
           const r = move(s, 1, 0);
           expect(r.moved).toBe(true);
           s = r.state;
-        } else if (a.type === 'rotate') {
+        } else if (a.type === 'down') {
+          const r = move(s, 0, 1);
+          expect(r.moved).toBe(true);
+          s = r.state;
+        } else {
           const r = rotate(s, a.dir);
           expect(r.rotated).toBe(true);
           s = r.state;
@@ -91,6 +97,7 @@ describe('enumerateCandidates', () => {
       }
       expect(s.active?.rot).toBe(cand.rot);
       expect(s.active?.x).toBe(cand.x);
+      expect(s.active?.y).toBe(cand.features.landingY);
     }
   });
 
@@ -121,6 +128,50 @@ describe('enumerateCandidates', () => {
     const fill = cands.find((c) => c.rot === 1 && c.x === 7);
     expect(fill).toBeDefined();
     expect(fill?.features.linesCleared).toBe(1);
+  });
+
+  it('excludes landings sealed behind a full-height wall', () => {
+    const board = createEmptyBoard();
+    for (let y = 0; y < ROWS; y++) {
+      board[y][5] = 1 as CellValue;
+    }
+    // O cells span box columns 1..2: box x=5 is geometrically droppable
+    // (cells land in columns 6..7) but unreachable across the wall.
+    const cands = enumerateCandidates(board, spawn('O'));
+    expect(cands.find((c) => c.id === 'r0x5')).toBeUndefined();
+    expect(cands.length).toBe(4);
+    for (const c of cands) {
+      expect(c.x).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('routes over a low wall by descending first (tuck)', () => {
+    const board = createEmptyBoard();
+    for (let y = 0; y <= 3; y++) {
+      board[y][6] = 1 as CellValue;
+    }
+    const active = spawn('T');
+    const cands = enumerateCandidates(board, active);
+    const beyond = cands.find((c) => c.rot === 0 && c.x === 7);
+    expect(beyond).toBeDefined();
+    // Sliding across at spawn height is blocked; the path must go down first.
+    expect(beyond?.actions.some((a) => a.type === 'down')).toBe(true);
+    let s = toState(board, { ...active });
+    for (const a of beyond?.actions ?? []) {
+      if (a.type === 'drop') {
+        continue;
+      } else if (a.type === 'rotate') {
+        s = rotate(s, a.dir).state;
+      } else if (a.type === 'left') {
+        s = move(s, -1, 0).state;
+      } else if (a.type === 'right') {
+        s = move(s, 1, 0).state;
+      } else {
+        s = move(s, 0, 1).state;
+      }
+    }
+    expect(s.active?.x).toBe(7);
+    expect(s.active?.y).toBe(beyond?.features.landingY);
   });
 
   it('excludes placements blocked by a filled column', () => {

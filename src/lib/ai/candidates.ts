@@ -1,8 +1,9 @@
-import { COLS, ROWS, cellFor, cellsOf } from '../tetris/constants';
+import { COLS, KICKS, ROWS, cellFor, cellsOf } from '../tetris/constants';
 import { isValidPosition } from '../tetris/engine';
 import type {
   ActivePiece,
   Board,
+  RotationDir,
   RotationState,
 } from '../tetris/types';
 import type {
@@ -86,6 +87,95 @@ function measureFeatures(
   };
 }
 
+interface Pose {
+  x: number;
+  y: number;
+  rot: RotationState;
+}
+
+// Engine-identical rotation: same kick table and trial order as rotate() in
+// engine.ts, so a found path always replays exactly through the engine.
+function kickedRotation(
+  board: Board,
+  kind: ActivePiece['kind'],
+  node: Pose,
+  dir: RotationDir,
+): Pose | null {
+  const rot = ((node.rot + dir + 4) % 4) as RotationState;
+  for (const [kx, ky] of KICKS) {
+    const x = node.x + kx;
+    const y = node.y + ky;
+    if (isValidPosition(board, cellsAt(kind, rot, x, y))) {
+      return { x, y, rot };
+    }
+  }
+  return null;
+}
+
+function neighbors(
+  board: Board,
+  kind: ActivePiece['kind'],
+  node: Pose,
+): { node: Pose; action: EngineAction }[] {
+  const out: { node: Pose; action: EngineAction }[] = [];
+  for (const dx of [-1, 1]) {
+    const next: Pose = { x: node.x + dx, y: node.y, rot: node.rot };
+    if (isValidPosition(board, cellsAt(kind, next.rot, next.x, next.y))) {
+      out.push({ node: next, action: dx < 0 ? { type: 'left' } : { type: 'right' } });
+    }
+  }
+  const down: Pose = { x: node.x, y: node.y + 1, rot: node.rot };
+  if (isValidPosition(board, cellsAt(kind, down.rot, down.x, down.y))) {
+    out.push({ node: down, action: { type: 'down' } });
+  }
+  for (const dir of [1, -1] as const) {
+    const turned = kickedRotation(board, kind, node, dir);
+    if (turned !== null) {
+      out.push({ node: turned, action: { type: 'rotate', dir } });
+    }
+  }
+  return out;
+}
+
+// Shortest executable action sequence from the current pose to the rest pose.
+// Null when the landing is geometrically droppable but unreachable on foot
+// (e.g. sealed behind a full-height wall). Such options are excluded so the
+// model only ever chooses landings the simulator reproduces exactly.
+function findPath(
+  board: Board,
+  kind: ActivePiece['kind'],
+  from: Pose,
+  to: Pose,
+): EngineAction[] | null {
+  const keyOf = (n: Pose): string => `${n.x},${n.y},${n.rot}`;
+  const startKey = keyOf(from);
+  const prev = new Map<string, { from: string; action: EngineAction }>();
+  const seen = new Set<string>([startKey]);
+  const queue: Pose[] = [from];
+  for (let head = 0; head < queue.length; head += 1) {
+    const node = queue[head] as Pose;
+    if (node.x === to.x && node.y === to.y && node.rot === to.rot) {
+      const actions: EngineAction[] = [];
+      let key = keyOf(node);
+      while (key !== startKey) {
+        const step = prev.get(key);
+        if (step === undefined) break;
+        actions.unshift(step.action);
+        key = step.from;
+      }
+      return actions;
+    }
+    for (const { node: next, action } of neighbors(board, kind, node)) {
+      const key = keyOf(next);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      prev.set(key, { from: keyOf(node), action });
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
 export function enumerateCandidates(
   board: Board,
   active: ActivePiece,
@@ -112,16 +202,16 @@ export function enumerateCandidates(
       const after: Board = [...empty, ...kept];
       const features = measureFeatures(after, rot, x, y, linesCleared);
 
-      const actions: EngineAction[] = [];
-      const turns = (((rot - active.rot) % 4) + 4) % 4;
-      for (let i = 0; i < turns; i++) {
-        actions.push({ type: 'rotate', dir: 1 });
+      const path = findPath(
+        board,
+        active.kind,
+        { x: active.x, y: active.y, rot: active.rot },
+        { x, y, rot },
+      );
+      if (path === null) {
+        continue;
       }
-      const dx = x - active.x;
-      for (let i = 0; i < Math.abs(dx); i++) {
-        actions.push({ type: dx > 0 ? 'right' : 'left' });
-      }
-      actions.push({ type: 'drop' });
+      const actions: EngineAction[] = [...path, { type: 'drop' }];
 
       out.push({ id: `r${rot}x${x}`, rot, x, features, actions });
     }

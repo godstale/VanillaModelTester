@@ -90,7 +90,7 @@ export interface DecisionAgent { readonly name: string; decide(snap: BoardSnapsh
 | 파일 | 내용 |
 |---|---|
 | `types.ts` | 위 인터페이스 + `EngineAction`(left/right/rotate/drop/wait) |
-| `candidates.ts` | 현재 조각의 **합법 착지 후보 전부 열거**(회전×x위치 시뮬레이션, 최대 34개). 후보마다 Dellacherie 특성(착지 높이·구멍·울퉁불퉁도·제거줄) 계산 |
+| `candidates.ts` | 현재 조각의 **실행 가능한 착지 후보만 열거**(회전×x위치 시뮬레이션, 최대 34개 중 BFS 도달 불가 제외). 후보마다 Dellacherie 특성(착지 높이·구멍·울퉁불퉁도·제거줄) 계산. 경로는 엔진과 동일한 이동·킥 규칙의 BFS 최단 수순이며, 시뮬레이터는 실행 전 도달 검증을 통과한 자세만 잠근다 |
 | `stateEncoder.ts` | 후보 N개를 Laya 질문 1개로 묶을 수 있게 인코딩. §5 참조 |
 | `mockAgent.ts` | 랜덤 + 고정 시드. 파이프라인 스모크용 |
 | `heuristicAgent.ts` | 베이스라인. 가중합 평가함수(가중치는 상수로 시작, M4에서 로그 기반 조정) |
@@ -223,7 +223,7 @@ mock/heuristic으로 전체 파이프라인을 완성한다.
 
 - `engine.test.ts`: 회전·충돌·벽킥·줄 제거(싱글~테트리스)·점수·7-bag·동일
   시드 결정성. 게임 로직 변경 시 필수.
-- `candidates.test.ts`: 후보 열거 완전성(합법 착지 누락 없음)·특성값 스냅샷.
+- `candidates.test.ts`: 후보 열거 완전성(도달 불가 제외)·엔진 리플레이 일치(자세·착지행)·특성값 스냅샷.
 - `stateEncoder.test.ts`: 토큰 예산(문자 수 상한) 초과 시 컷+경고, 컷 기준
   기록 여부.
 - `simulator.test.ts`: 동기 모드 동일 시드 동일 결과, 폴백 카운터 동작.

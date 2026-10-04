@@ -20,6 +20,7 @@ export interface BoardSnapshot {
 export type EngineAction =
   | { type: 'left' }
   | { type: 'right' }
+  | { type: 'down' }
   | { type: 'rotate'; dir: RotationDir }
   | { type: 'drop' };
 
