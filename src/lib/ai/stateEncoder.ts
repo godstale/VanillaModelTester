@@ -65,7 +65,17 @@ function measureBoard(board: Board): { holes: number; maxH: number } {
 
 function summarize(c: CandidateMove): string {
   const f = c.features;
-  return `${c.id}: rot ${c.rot} x ${c.x} lines ${f.linesCleared} holes +${f.holes} maxH ${f.maxHeight}`;
+  return (
+    `${c.id}: rot ${c.rot} x ${c.x} y ${f.landingY} ` +
+    `lines ${f.linesCleared} holes +${f.holes} maxH ${f.maxHeight} ` +
+    `aggH ${f.aggregateHeight} bump ${f.bumpiness}`
+  );
+}
+
+function renderBoard(board: Board): string {
+  return board
+    .map((row) => row.map((cell) => (cell === 0 ? '.' : '#')).join(''))
+    .join('\n');
 }
 
 export function encodePlacementRequest(
@@ -86,18 +96,27 @@ export function encodePlacementRequest(
   const dropped = cands.length - kept.length;
 
   const { holes, maxH } = measureBoard(snap.board);
-  const active = snap.active?.kind ?? '?';
-  const prefix = `holes=${holes} maxH=${maxH} active=${active} next=[${snap.queue.join(',')}]`;
+  const activeText =
+    snap.active === null
+      ? 'active=none'
+      : `active=${snap.active.kind} rot=${snap.active.rot} x=${snap.active.x} y=${snap.active.y}`;
+  const statusLine =
+    `holes=${holes} maxH=${maxH} ${activeText} ` +
+    `next=[${snap.queue.join(',')}] score=${snap.score} lines=${snap.lines} ` +
+    `level=${snap.level} step=${snap.stepIndex} ` +
+    `cands=${kept.length}/${cands.length} dropped=${dropped}`;
   const stateText =
-    kept.length > 0
-      ? `${prefix} ${kept.map(summarize).join(' | ')}`
-      : prefix;
+    `board 10x20 (row0=top, .=empty #=filled):\n${renderBoard(snap.board)}\n` +
+    statusLine +
+    (kept.length > 0 ? `\n${kept.map(summarize).join(' | ')}` : '');
 
   const criteria: Record<string, string> = {};
   for (const c of kept) {
     const f = c.features;
     criteria[c.id] =
-      `rot ${c.rot} x ${c.x}, clears ${f.linesCleared}, holes +${f.holes}, maxH ${f.maxHeight}`;
+      `rot ${c.rot} x ${c.x} y ${f.landingY}, clears ${f.linesCleared}, ` +
+      `holes +${f.holes}, maxH ${f.maxHeight}, ` +
+      `aggH ${f.aggregateHeight}, bump ${f.bumpiness}`;
   }
   const questions: Record<string, QuestionDef> = {
     place: {

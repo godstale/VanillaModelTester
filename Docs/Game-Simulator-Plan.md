@@ -109,23 +109,32 @@ export interface DecisionAgent { readonly name: string; decide(snap: BoardSnapsh
 제약: 영어 체크포인트 컨텍스트 512토큰, 옵션 헤드 예산 `head_max_len=192`.
 옵션이 많아지면 옵션당 토큰이 잘려 구분이 흐려진다(Banking77 0.425의 원인).
 
-**권장안: "후보 열거 + choice 1문항"**
+**권장안: "전체 보드 + 후보 열거 + choice 1문항" (v2)**
 
-- state: 현재 보드를 10×20 ASCII가 아니라 **후보별 1줄 요약 리스트**로 준다.
-  예: `"A: rot0 x3 lines+0 holes+2 height6 | B: rot1 x5 lines+1 holes+0 height3 ..."`.
-  후보가 10개를 넘으면 휴리스틱 상위 8개로 컷(컷 기준·개수를 로그에 기록).
-- questions: `place` 1문항, `type: choice`, criteria = 후보 id → 1줄 설명.
+- state: 10×20 전체 격자(`.`=빈칸, `#`=점유, row0=top) + 상태행으로 준다.
+  상태행 = `holes/maxH/활성조각(kind rot x y)/next/점수·라인·레벨·스텝/후보수/컷수`.
+  후보가 8개를 넘으면 내부 스코어 상위 8개로 컷하고 `dropped=N`으로 컷 사실을
+  프롬프트에 명시한다(컷 기준·개수는 로그에도 기록).
+- questions: `place` 1문항, `type: choice`, criteria = 후보 id → 전체 착지 특성
+  1줄 설명(rot/x/착지y/제거줄/구멍/maxH/aggH/bump).
 - 추가로 `danger` 1문항(`type: noul`, "이 보드가 5수 안에 죽는가")을 같은
   forward pass에 묶는다. Laya는 한 호출의 전 문항을 1 pass로 처리하므로
-  추가 비용이 거의 없다. `danger` 확률이 임계치를 넘으면 휴리스틱 폴백.
+  추가 비용이 거의 없다. Laya 실패(타임아웃·기권·에러) 시 구조하지 않고
+  에피소드를 중단한다(`laya-error`).
+- 토큰 예산(상태 컨텍스트 512): 격자 약 219자 + 상태행 약 120자 +
+  후보 8개 × 약 90자 ≈ 1100자(약 275토큰). criteria 1개당 약 100자(약 25토큰)로
+  `head_max_len=192` 안에 들어간다.
 
 ```
-state = "board.holes=3 board.maxHeight=11 active=T next=[S,Z] " +
-        "A: rot0 x0 lines0 holes+1 maxH12 | B: rot2 x4 lines1 holes+0 maxH9 | ..."
+state = "board 10x20 (row0=top, .=empty #=filled):\n" +
+        "..........\n... (20 rows) ...\n" +
+        "holes=3 maxH=11 active=T rot=0 x=3 y=0 next=[S,Z] " +
+        "score=120 lines=2 level=1 step=15 cands=8/12 dropped=4\n" +
+        "r0x0: rot 0 x 0 y 18 lines 0 holes +1 maxH 12 aggH 30 bump 8 | ..."
 questions = {
   "place":  { "type": "choice", "instructions": "Choose the landing that keeps the stack lowest and flattest.",
-              "criteria": { "A": "rot0 x0, clears 0, holes +1, max height 12",
-                            "B": "rot2 x4, clears 1, holes +0, max height 9" } },
+              "criteria": { "r0x0": "rot 0 x 0 y 18, clears 0, holes +1, maxH 12, aggH 30, bump 8",
+                            "r2x4": "rot 2 x 4 y 18, clears 1, holes +0, maxH 9, aggH 22, bump 4" } },
   "danger": { "type": "noul", "instructions": "Will this stack top out within 5 pieces?" }
 }
 ```
