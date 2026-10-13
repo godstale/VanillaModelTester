@@ -40,6 +40,7 @@ pub fn run() {
             read_project_folder_tree,
             read_text_file,
             write_text_file,
+            save_binary_file,
             create_file,
             create_folder,
             rename_path,

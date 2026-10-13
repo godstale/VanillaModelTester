@@ -463,3 +463,26 @@ pub fn reveal_in_explorer(path: String, workspace_root: Option<String>) -> Resul
     Ok(())
 }
 
+// Binary counterpart of `write_text_file` for user-confirmed downloads
+// (e.g. canvas recordings). The path must come from a save dialog the
+// user explicitly confirmed, so no workspace-scope check applies here -
+// unlike every other writer in this module, the destination is often the
+// user's Downloads folder outside the workspace.
+#[tauri::command]
+pub fn save_binary_file(path: String, contents_base64: String) -> Result<u64, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(contents_base64.trim())
+        .map_err(|e| format!("Invalid base64 payload: {}", e))?;
+    let target = Path::new(&path);
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
+        }
+    }
+    std::fs::write(target, &bytes)
+        .map_err(|e| format!("Failed to write {}: {}", target.display(), e))?;
+    Ok(bytes.len() as u64)
+}
+
