@@ -63,7 +63,10 @@ type AutoSpeed = '1x' | '10x' | 'max';
 const LAYA_BASE_URL_KEY = 'laya.baseUrl';
 const LAYA_MODEL_KEY = 'laya.model';
 const LAYA_MIN_CONFIDENCE_KEY = 'laya.minConfidence';
+const LAYA_STOP_ON_DANGER_KEY = 'laya.stopOnDanger';
+const LAYA_DANGER_THRESHOLD_KEY = 'laya.dangerThreshold';
 const LAYA_DEFAULT_MAX_STEPS = 300;
+const DEFAULT_DANGER_THRESHOLD = 0.5;
 
 function readLayaModel(): string {
   try {
@@ -81,6 +84,34 @@ function readLayaMinConfidence(): string {
   }
 }
 
+function readStopOnDanger(): boolean {
+  try {
+    return localStorage.getItem(LAYA_STOP_ON_DANGER_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function readDangerThreshold(): string {
+  try {
+    return localStorage.getItem(LAYA_DANGER_THRESHOLD_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// Empty means the default 0.5 threshold. Tev1 reports danger as a
+// probability; values at or above the threshold count as danger=true.
+function parseDangerThreshold(value: string): number {
+  if (value.trim() === '') {
+    return DEFAULT_DANGER_THRESHOLD;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_DANGER_THRESHOLD;
+  }
+  return Math.min(1, Math.max(0, parsed));
+}
 // Empty means the server-side abstention gate is off. Otherwise the value is
 // clamped to [0, 1] and sent as `min_confidence`: answers below it come back
 // marked abstained, which stops the episode.
@@ -186,6 +217,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
   const [layaModel, setLayaModel] = useState(readLayaModel);
   const [minConfidence, setMinConfidence] = useState(readLayaMinConfidence);
+  const [stopOnDanger, setStopOnDanger] = useState(readStopOnDanger);
+  const [dangerThresholdStr, setDangerThresholdStr] = useState(readDangerThreshold);
   const simRef = useRef<Simulator | null>(null);
   const runRef = useRef<{ seed: number; steps: StepRecord[] }>({
     seed: 0,
@@ -341,6 +374,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     baseUrl: string,
     minConf: number | undefined,
     modelName: string,
+    stopDanger: boolean = stopOnDanger,
+    dangerThresh: number = parseDangerThreshold(dangerThresholdStr),
   ): DecisionAgent => {
     const isOllama = baseUrl.includes('11434');
     const effectiveModel =
@@ -353,6 +388,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       serverType: isOllama ? 'ollama' : 'laya',
       model: effectiveModel,
       minConfidence: minConf,
+      stopOnDanger: stopDanger,
+      dangerThreshold: dangerThresh,
     });
     return {
       name: inner.name,
@@ -403,13 +440,15 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     baseUrl: string = layaBaseUrl,
     minConf: number | undefined = parseMinConfidence(minConfidence),
     modelName: string = layaModel,
+    stopDanger: boolean = stopOnDanger,
+    dangerThresh: number = parseDangerThreshold(dangerThresholdStr),
   ) => {
     genRef.current += 1;
     busyRef.current = false;
     autoStartRef.current = Date.now();
     const collected: StepRecord[] = [];
     const sim = new Simulator(
-      buildMonitoredAgent(baseUrl, minConf, modelName),
+      buildMonitoredAgent(baseUrl, minConf, modelName, stopDanger, dangerThresh),
       seed,
       { maxSteps: stepsLimit },
       undefined,
@@ -498,6 +537,50 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     }
   };
 
+  const handleStopOnDangerChange = (next: boolean) => {
+    setStopOnDanger(next);
+    try {
+      localStorage.setItem(LAYA_STOP_ON_DANGER_KEY, next ? '1' : '0');
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    setupAutoSim(
+      freshSeed(),
+      maxSteps,
+      layaBaseUrl,
+      parseMinConfidence(minConfidence),
+      layaModel,
+      next,
+      parseDangerThreshold(dangerThresholdStr),
+    );
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
+    }
+  };
+
+  const handleDangerThresholdChange = (value: string) => {
+    setDangerThresholdStr(value);
+    try {
+      localStorage.setItem(LAYA_DANGER_THRESHOLD_KEY, value);
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    setupAutoSim(
+      freshSeed(),
+      maxSteps,
+      layaBaseUrl,
+      parseMinConfidence(minConfidence),
+      layaModel,
+      stopOnDanger,
+      parseDangerThreshold(value),
+    );
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
+    }
+  };
+
   const handleSpeedChange = (next: AutoSpeed) => {
     if (next === speed) return;
     const involvesMax = next === 'max' || speed === 'max';
@@ -534,6 +617,8 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             serverType: isOllama ? 'ollama' : 'laya',
             model: effectiveModel,
             minConfidence: minConf,
+            stopOnDanger,
+            dangerThreshold: parseDangerThreshold(dangerThresholdStr),
           }),
         {
           episodes: BENCH_EPISODES,
@@ -929,6 +1014,38 @@ export function TetrisTab({ tab }: TetrisTabProps) {
               />
               <span className="text-[11px] leading-relaxed">
                 {t('game.minConfidenceHint')}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                aria-label={t('game.stopOnDanger')}
+                type="checkbox"
+                checked={stopOnDanger}
+                onChange={(e) => handleStopOnDangerChange(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              <span className="flex flex-col">
+                <span>{t('game.stopOnDanger')}</span>
+                <span className="text-[11px] leading-relaxed">
+                  {t('game.stopOnDangerHint')}
+                </span>
+              </span>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.dangerThreshold')}
+              <input
+                aria-label={t('game.dangerThreshold')}
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={dangerThresholdStr}
+                onChange={(e) => handleDangerThresholdChange(e.target.value)}
+                placeholder="0.5"
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <span className="text-[11px] leading-relaxed">
+                {t('game.dangerThresholdHint')}
               </span>
             </label>
           </div>
