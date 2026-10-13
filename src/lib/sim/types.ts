@@ -23,6 +23,8 @@ export interface EpisodeStats {
   avgLatencyMs: number;
   durationMs: number;
   ended: EpisodeEnd;
+  /** Machine-readable stop cause for logs/UI (e.g. danger, abstained, timeout). */
+  endReason: string;
 }
 
 export interface HeadlessSummary {

@@ -99,13 +99,14 @@ function toDecision(
   const { danger, dangerConfidence } = readDanger(data, dangerThreshold);
   // A lost position is not played out: stopping keeps the log honest instead
   // of recording moves from a position the model itself judged doomed.
-  const abstained = place['abstention'] === 'abstained' || danger === true;
+  const abstention = isRecord(place) ? place['abstention'] : undefined;
+  const abstained = abstention === 'abstained' || danger === true;
   return {
     moveId: choice,
     confidence,
     abstained,
     latencyMs: performance.now() - started,
-    raw: { stateText, candidatesText, danger, dangerConfidence },
+    raw: { stateText, candidatesText, danger, dangerConfidence, abstention },
   };
 }
 

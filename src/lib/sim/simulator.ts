@@ -68,6 +68,7 @@ export class Simulator {
   private decisions = 0;
   private fallbacks = 0;
   private layaFailed = false;
+  private endReason = '';
   private confidenceSum = 0;
   private latencySumMs = 0;
 
@@ -98,6 +99,10 @@ export class Simulator {
     return this.fallbacks;
   }
 
+  get stopReason(): string {
+    return this.endReason;
+  }
+
   snapshot(): BoardSnapshot {
     const current = this.state;
     return {
@@ -109,6 +114,20 @@ export class Simulator {
       level: current.level,
       stepIndex: this.stepIndex,
     };
+  }
+
+  private failEpisode(reason: string): 'ended' {
+    this.fallbacks += 1;
+    this.layaFailed = true;
+    this.endReason = reason;
+    // Surfaced in devtools + Tauri logs so a Tev1 early stop can be told
+    // apart (danger/abstained/timeout/unknown-choice/placement).
+    console.warn(
+      `[sim] episode stopped at step ${this.stepIndex}: ${reason}` +
+        ` (agent=${this.agent.name} decisions=${this.decisions}` +
+        ` fallbacks=${this.fallbacks})`,
+    );
+    return 'ended';
   }
 
   async stepOnce(): Promise<'progress' | 'ended'> {
@@ -144,22 +163,23 @@ export class Simulator {
         this.stepIndex += 1;
         return 'progress';
       }
-      this.fallbacks += 1;
-      this.layaFailed = true;
-      return 'ended';
+      return this.failEpisode('placement-failed:single-candidate-path-invalid');
     }
-    const placed = await this.askAgent(this.agent, snap, candidates);
-    if (placed !== null && this.applyPlacement(placed.target)) {
-      this.recordDecision(placed);
+    const asked = await this.askAgent(this.agent, snap, candidates);
+    if (asked.kind === 'placed' && this.applyPlacement(asked.placed.target)) {
+      this.recordDecision(asked.placed);
       this.stepIndex += 1;
       return 'progress';
     }
     // Laya-only: a throw, timeout, or abstention ends the episode instead of
     // being rescued. This app tests the model, so a silent rescue would hide
     // model failures.
-    this.fallbacks += 1;
-    this.layaFailed = true;
-    return 'ended';
+    if (asked.kind === 'placed') {
+      return this.failEpisode(
+        'placement-failed:executed-pose-mismatch (model choice could not replay)',
+      );
+    }
+    return this.failEpisode(asked.reason);
   }
 
   async run(): Promise<EpisodeStats> {
@@ -172,6 +192,11 @@ export class Simulator {
 
   stats(durationMs: number): EpisodeStats {
     const current = this.state;
+    const ended: EpisodeStats['ended'] = this.layaFailed
+      ? 'laya-error'
+      : current.status === 'over'
+        ? 'gameover'
+        : 'maxSteps';
     return {
       agent: this.agent.name,
       seed: this.seed,
@@ -187,11 +212,11 @@ export class Simulator {
       avgLatencyMs:
         this.decisions === 0 ? 0 : this.latencySumMs / this.decisions,
       durationMs,
-      ended: this.layaFailed
-        ? 'laya-error'
-        : current.status === 'over'
-          ? 'gameover'
-          : 'maxSteps',
+      ended,
+      endReason:
+        ended === 'laya-error'
+          ? this.endReason || 'laya-error:unknown'
+          : ended,
     };
   }
 
@@ -204,6 +229,7 @@ export class Simulator {
     this.decisions = 0;
     this.fallbacks = 0;
     this.layaFailed = false;
+    this.endReason = '';
     this.confidenceSum = 0;
     this.latencySumMs = 0;
   }
@@ -230,7 +256,10 @@ export class Simulator {
     agent: DecisionAgent,
     snap: BoardSnapshot,
     candidates: CandidateMove[],
-  ): Promise<PlacedDecision | null> {
+  ): Promise<
+    | { kind: 'placed'; placed: PlacedDecision }
+    | { kind: 'failed'; reason: string }
+  > {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const pending = agent.decide(snap, candidates);
@@ -245,15 +274,51 @@ export class Simulator {
       });
       const decision = await Promise.race([pending, timeout]);
       if (decision.abstained) {
-        return null;
+        const raw = decision.raw as
+          | {
+              danger?: unknown;
+              abstention?: unknown;
+              dangerConfidence?: unknown;
+            }
+          | undefined;
+        if (raw?.danger === true) {
+          const dc =
+            typeof raw.dangerConfidence === 'number'
+              ? ` (dangerConfidence=${raw.dangerConfidence})`
+              : '';
+          return {
+            kind: 'failed',
+            reason:
+              `abstained:danger-true (model judged stack doomed, choice=${decision.moveId}` +
+              ` confidence=${decision.confidence})${dc}`,
+          };
+        }
+        const abstention =
+          typeof raw?.abstention === 'string' ? ` abstention=${raw.abstention}` : '';
+        return {
+          kind: 'failed',
+          reason:
+            `abstained:place${abstention} (choice=${decision.moveId}` +
+            ` confidence=${decision.confidence})`,
+        };
       }
       const target = candidates.find((c) => c.id === decision.moveId);
       if (target === undefined) {
-        return null;
+        return {
+          kind: 'failed',
+          reason: `unknown-choice:${decision.moveId} (model returned an id outside the candidate list)`,
+        };
       }
-      return { decision, target };
-    } catch {
-      return null;
+      return { kind: 'placed', placed: { decision, target } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/decide timeout/i.test(message)) {
+        return {
+          kind: 'failed',
+          reason: `decide-timeout:${DECIDE_TIMEOUT_MS}ms (agent did not settle)`,
+        };
+      }
+      return { kind: 'failed', reason: `agent-error:${message}` };
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);
