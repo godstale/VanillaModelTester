@@ -17,6 +17,7 @@ export interface LayaMonitorState {
   lastDanger: boolean | null;
   lastLatencyMs: number | null;
   lastError: string | null;
+  endReason: string | null;
   updatedAt: number | null;
 }
 
@@ -32,6 +33,7 @@ export const initialLayaMonitor: LayaMonitorState = {
   lastDanger: null,
   lastLatencyMs: null,
   lastError: null,
+  endReason: null,
   updatedAt: null,
 };
 
@@ -49,7 +51,7 @@ export type LayaMonitorEvent =
     }
   | { type: 'error'; stepIndex: number; message: string; latencyMs: number }
   | { type: 'reset' }
-  | { type: 'ended' };
+  | { type: 'ended'; reason?: string };
 
 export function reduceLayaMonitor(
   prev: LayaMonitorState,
@@ -91,7 +93,22 @@ export function reduceLayaMonitor(
     case 'reset':
       return { ...initialLayaMonitor };
     case 'ended':
-      return { ...prev, connStatus: 'ended', updatedAt: Date.now() };
+      return {
+        ...prev,
+        connStatus: 'ended',
+        endReason: event.reason ?? prev.endReason,
+        // An abstain/danger stop is not a transport error, but without an
+        // error line the UI would show "완료" with no cause. Mirror the
+        // reason so the stop cause stays visible.
+        lastError:
+          event.reason !== undefined &&
+          event.reason !== '' &&
+          event.reason !== 'maxSteps' &&
+          event.reason !== 'gameover'
+            ? event.reason
+            : prev.lastError,
+        updatedAt: Date.now(),
+      };
     default:
       return prev;
   }
