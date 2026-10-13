@@ -217,6 +217,15 @@ const ko = {
   'game.avgConfidence': '평균 확신도',
   'game.noData': '아직 데이터 없음',
   'game.candidatesText': '후보 상세',
+  'game.endReason': '중단 사유',
+  'game.serverSettings': '서버 설정',
+  'game.record': '녹화',
+  'game.recording': '녹화 중',
+  'game.stopRecord': '녹화 정지',
+  'game.downloadRecord': '영상 저장',
+  'game.recordHint': '게임 보드를 webm 영상으로 저장합니다',
+  'game.recordUnsupported': '이 환경에서는 녹화를 지원하지 않습니다',
+  'game.recordSaved': '녹화 저장됨 ({size})',
 
   'layaService.title': 'Laya / Ollama 서비스',
   'layaService.desc':

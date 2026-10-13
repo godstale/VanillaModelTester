@@ -27,6 +27,7 @@ function episode(
     avgLatencyMs: 2,
     durationMs: 50,
     ended: 'maxSteps',
+    endReason: 'maxSteps',
   };
 }
 

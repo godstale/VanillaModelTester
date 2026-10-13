@@ -143,4 +143,54 @@ describe('Simulator', () => {
     expect(stats.decisions).toBe(4);
     expect(stats.ended).toBe('maxSteps');
   });
+
+  it('reports maxSteps as the end reason on clean runs', async () => {
+    const sim = new Simulator(mockAgent(), 123, { maxSteps: 5 }, singleStay);
+    const stats = await sim.run();
+    expect(stats.ended).toBe('maxSteps');
+    expect(stats.endReason).toBe('maxSteps');
+  });
+
+  it('reports danger abstentions distinctly from transport errors', async () => {
+    const dangerAgent: DecisionAgent = {
+      name: 'danger',
+      decide: async (
+        _snap: BoardSnapshot,
+        cands: CandidateMove[],
+      ): Promise<MoveDecision> => ({
+        moveId: cands[0]?.id ?? '',
+        confidence: 0.9,
+        abstained: true,
+        latencyMs: 5,
+        raw: { danger: true, dangerConfidence: 0.8, abstention: null },
+      }),
+    };
+    const sim = new Simulator(dangerAgent, 42, { maxSteps: 3 }, twoStay());
+    const stats = await sim.run();
+    expect(stats.ended).toBe('laya-error');
+    expect(stats.endReason).toMatch(/danger-true/);
+  });
+
+  it('reports unknown model choices distinctly', async () => {
+    const badChoice: DecisionAgent = {
+      name: 'bad-choice',
+      decide: async (): Promise<MoveDecision> => ({
+        moveId: 'r9x9',
+        confidence: 0.9,
+        abstained: false,
+        latencyMs: 5,
+      }),
+    };
+    const sim = new Simulator(badChoice, 42, { maxSteps: 3 }, twoStay());
+    const stats = await sim.run();
+    expect(stats.ended).toBe('laya-error');
+    expect(stats.endReason).toMatch(/unknown-choice/);
+  });
+
+  it('reports agent throws with the underlying message', async () => {
+    const sim = new Simulator(throwingAgent(), 42, { maxSteps: 3 }, twoStay());
+    const stats = await sim.run();
+    expect(stats.ended).toBe('laya-error');
+    expect(stats.endReason).toMatch(/agent-error:boom/);
+  });
 });

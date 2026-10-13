@@ -80,4 +80,9 @@ describe('TetrisTab', () => {
     setup();
     screen.getByRole('button', { name: '벤치마크' });
   });
+
+  it('offers board recording with a download path', () => {
+    setup();
+    screen.getByRole('button', { name: '녹화' });
+  });
 });

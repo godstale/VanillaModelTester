@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Play, RotateCcw, Square } from 'lucide-react';
+import { Circle, Download, Play, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BoardCanvas } from '@/components/game/BoardCanvas';
 import { LayaStatusPanel } from '@/components/game/LayaStatusPanel';
@@ -29,6 +29,12 @@ import {
   DEFAULT_OLLAMA_URL,
   DEFAULT_TEV1_MODEL,
 } from '@/lib/ai/layaHttpAgent';
+import {
+  isCanvasRecordingSupported,
+  recordingFileName,
+  startCanvasRecording,
+} from '@/lib/recording/canvasRecorder';
+import type { CanvasRecorderHandle } from '@/lib/recording/canvasRecorder';
 import type { DecisionAgent } from '@/lib/ai/types';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -189,6 +195,17 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const genRef = useRef<number>(0);
   const busyRef = useRef<boolean>(false);
   const benchCancelRef = useRef<boolean>(false);
+  const boardCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recorderRef = useRef<CanvasRecorderHandle | null>(null);
+  const recordUrlRef = useRef<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordElapsed, setRecordElapsed] = useState(0);
+  const [recordUrl, setRecordUrl] = useState<string | null>(null);
+  const [recordName, setRecordName] = useState<string | null>(null);
+  const [recordSize, setRecordSize] = useState<number | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const recordSupported =
+    typeof window !== 'undefined' && isCanvasRecordingSupported();
 
   const display = autoBoard;
 
@@ -233,7 +250,15 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     const stats = sim.stats(Date.now() - autoStartRef.current);
     setAutoStats(stats);
     setAutoRunning(false);
-    emitMonitor({ type: 'ended' });
+    emitMonitor({ type: 'ended', reason: stats.endReason });
+    // Keep the terminal log beside the persisted episode: the stats card
+    // shows the same string, so a screenshot plus this line is enough to
+    // report a Tev1 early stop.
+    console.info(
+      `[tetris] episode ended: ${stats.ended} (${stats.endReason})` +
+        ` steps=${stats.steps} pieces=${stats.pieces} lines=${stats.lines}` +
+        ` decisions=${stats.decisions} fallbacks=${stats.fallbacks}`,
+    );
     persistEpisode(stats, runRef.current.steps);
   };
 
@@ -298,7 +323,12 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       syncAutoView(sim);
       setAutoStats(result);
       setAutoRunning(false);
-      emitMonitor({ type: 'ended' });
+      emitMonitor({ type: 'ended', reason: result.endReason });
+      console.info(
+        `[tetris] episode ended: ${result.ended} (${result.endReason})` +
+          ` steps=${result.steps} pieces=${result.pieces} lines=${result.lines}` +
+          ` decisions=${result.decisions} fallbacks=${result.fallbacks}`,
+      );
       persistEpisode(result, runRef.current.steps);
     });
     return () => {
@@ -546,18 +576,162 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setAutoRunning(true);
   };
 
+  // Board-only recording: captureStream on the game canvas, MediaRecorder to
+  // webm. The blob URL is offered as a download; Tauri has no binary file
+  // writer wired here, so the browser download path is the portable option.
+  useEffect(() => {
+    if (!recording) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setRecordElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
+  useEffect(
+    () => () => {
+      if (recordUrlRef.current !== null) {
+        URL.revokeObjectURL(recordUrlRef.current);
+        recordUrlRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const handleRecordStart = () => {
+    setRecordError(null);
+    const canvas = boardCanvasRef.current;
+    if (canvas === null) return;
+    try {
+      if (recordUrlRef.current !== null) {
+        URL.revokeObjectURL(recordUrlRef.current);
+        recordUrlRef.current = null;
+      }
+      setRecordUrl(null);
+      setRecordName(null);
+      setRecordSize(null);
+      setRecordElapsed(0);
+      recorderRef.current = startCanvasRecording(canvas, { fps: 30 });
+      setRecording(true);
+    } catch (err) {
+      setRecordError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRecordStop = () => {
+    const handle = recorderRef.current;
+    if (handle === null) {
+      setRecording(false);
+      return;
+    }
+    recorderRef.current = null;
+    void handle.stop().then(
+      ({ blob }) => {
+        setRecording(false);
+        const url = URL.createObjectURL(blob);
+        recordUrlRef.current = url;
+        setRecordUrl(url);
+        setRecordName(recordingFileName());
+        setRecordSize(blob.size);
+      },
+      (err: unknown) => {
+        setRecording(false);
+        setRecordError(err instanceof Error ? err.message : String(err));
+      },
+    );
+  };
+
+  const formatElapsed = (totalSeconds: number) => {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const benchPct =
     benchProgress === null || benchProgress.total === 0
       ? 0
       : Math.round((benchProgress.done / benchProgress.total) * 100);
 
   return (
-    <div className="flex h-full w-full min-h-0 gap-4 overflow-auto bg-editor p-4">
-      <div className="relative h-fit shrink-0">
-        <BoardCanvas board={display.board} active={display.active} />
+    <div className="flex h-full w-full min-h-0 gap-4 overflow-hidden bg-editor p-4">
+      <div className="flex min-h-0 shrink-0 flex-col gap-3 overflow-y-auto">
+        <div className="relative h-fit shrink-0">
+          <BoardCanvas
+            board={display.board}
+            active={display.active}
+            canvasRef={boardCanvasRef}
+          />
+        </div>
+
+        <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-foreground">
+              {t('game.record')}
+              {recording && (
+                <span className="ml-2 font-mono text-[11px] text-destructive">
+                  ● {t('game.recording')} {formatElapsed(recordElapsed)}
+                </span>
+              )}
+            </span>
+            {!recording ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={!recordSupported}
+                onClick={handleRecordStart}
+              >
+                <Circle className="h-3 w-3" />
+                {t('game.record')}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="h-7 px-2 text-[11px]"
+                onClick={handleRecordStop}
+              >
+                <Square className="h-3 w-3" />
+                {t('game.stopRecord')}
+              </Button>
+            )}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {t('game.recordHint')}
+          </p>
+          {!recordSupported && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {t('game.recordUnsupported')}
+            </p>
+          )}
+          {recordError !== null && (
+            <p className="break-all rounded-md bg-destructive/10 p-2 text-[11px] leading-relaxed text-destructive">
+              {recordError}
+            </p>
+          )}
+          {recordUrl !== null && recordName !== null && !recording && (
+            <a
+              href={recordUrl}
+              download={recordName}
+              className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <Download className="h-3 w-3" />
+              {t('game.downloadRecord')}
+              {recordSize !== null ? ` (${formatBytes(recordSize)})` : ''}
+            </a>
+          )}
+        </div>
       </div>
 
-      <div className="flex w-40 shrink-0 flex-col gap-3">
+      <div className="flex min-h-0 w-44 shrink-0 flex-col gap-3 overflow-y-auto">
         <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{t('game.score')}</span>
@@ -584,75 +758,29 @@ export function TetrisTab({ tab }: TetrisTabProps) {
           <NextPiece kind={display.queue[0]} />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">{t('game.serverPreset')}</span>
-            <div className="flex gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                variant={!layaBaseUrl.includes('11434') ? 'default' : 'outline'}
-                className="h-7 flex-1 px-1 text-[11px]"
-                onClick={() => handleApplyPreset(DEFAULT_LAYA_URL, '')}
-              >
-                Laya
+        <div className="sticky top-0 z-10 flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm">
+          {!autoRunning ? (
+            <Button type="button" size="sm" onClick={handleAutoStart}>
+              <Play className="h-3.5 w-3.5" />
+              {t('game.start')}
+            </Button>
+          ) : (
+            <>
+              <Button type="button" size="sm" onClick={handleAutoStop}>
+                <Square className="h-3.5 w-3.5" />
+                {t('game.stop')}
               </Button>
               <Button
                 type="button"
                 size="sm"
-                variant={layaBaseUrl.includes('11434') ? 'default' : 'outline'}
-                className="h-7 flex-1 px-1 text-[11px]"
-                onClick={() => handleApplyPreset(DEFAULT_OLLAMA_URL, DEFAULT_TEV1_MODEL)}
+                variant="outline"
+                onClick={handleAutoRestart}
               >
-                Ollama Tev1
+                <RotateCcw className="h-3.5 w-3.5" />
+                {t('game.restart')}
               </Button>
-            </div>
-          </div>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            {t('game.layaUrl')}
-            <input
-              aria-label={t('game.layaUrl')}
-              type="url"
-              value={layaBaseUrl}
-              onChange={(e) => handleLayaUrlChange(e.target.value)}
-              placeholder={DEFAULT_LAYA_URL}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-            />
-            <span className="text-[11px] leading-relaxed">
-              {t('game.layaHint')}
-            </span>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            {t('game.model')}
-            <input
-              aria-label={t('game.model')}
-              type="text"
-              value={layaModel}
-              onChange={(e) => handleModelChange(e.target.value)}
-              placeholder={layaBaseUrl.includes('11434') ? DEFAULT_TEV1_MODEL : 'auto'}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-            />
-            <span className="text-[11px] leading-relaxed">
-              {t('game.modelHint')}
-            </span>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            {t('game.minConfidence')}
-            <input
-              aria-label={t('game.minConfidence')}
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={minConfidence}
-              onChange={(e) => handleMinConfidenceChange(e.target.value)}
-              placeholder={t('game.minConfidenceOff')}
-              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
-            />
-            <span className="text-[11px] leading-relaxed">
-              {t('game.minConfidenceHint')}
-            </span>
-          </label>
+            </>
+          )}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             {t('game.speed')}
             <select
@@ -679,69 +807,132 @@ export function TetrisTab({ tab }: TetrisTabProps) {
               className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
             />
           </label>
-          <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {t('game.steps')}
-              </span>
-              <span className="font-mono font-semibold text-foreground">
-                {autoCounters.steps}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {t('game.pieces')}
-              </span>
-              <span className="font-mono font-semibold text-foreground">
-                {autoBoard?.pieces ?? 0}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {t('game.decisions')}
-              </span>
-              <span className="font-mono font-semibold text-foreground">
-                {autoCounters.decisions}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {t('game.fallbacks')}
-              </span>
-              <span className="font-mono font-semibold text-foreground">
-                {autoCounters.fallbacks}
-              </span>
-            </div>
-            {autoStats !== null && (
-              <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+        </div>
+
+        <div className="space-y-1.5 rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {t('game.steps')}
+            </span>
+            <span className="font-mono font-semibold text-foreground">
+              {autoCounters.steps}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {t('game.pieces')}
+            </span>
+            <span className="font-mono font-semibold text-foreground">
+              {autoBoard?.pieces ?? 0}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {t('game.decisions')}
+            </span>
+            <span className="font-mono font-semibold text-foreground">
+              {autoCounters.decisions}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {t('game.fallbacks')}
+            </span>
+            <span className="font-mono font-semibold text-foreground">
+              {autoCounters.fallbacks}
+            </span>
+          </div>
+          {autoStats !== null && (
+            <div className="space-y-1 pt-1">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
                 {t(endedKey(autoStats.ended))} · {t('game.episode')}{' '}
                 {autoStats.lines} {t('game.lines')}
               </p>
-            )}
-          </div>
-          {!autoRunning ? (
-            <Button type="button" size="sm" onClick={handleAutoStart}>
-              <Play className="h-3.5 w-3.5" />
-              {t('game.start')}
-            </Button>
-          ) : (
-            <>
-              <Button type="button" size="sm" onClick={handleAutoStop}>
-                <Square className="h-3.5 w-3.5" />
-                {t('game.stop')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleAutoRestart}
+              <p
+                className="break-all text-[11px] leading-relaxed text-muted-foreground"
+                title={autoStats.endReason}
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t('game.restart')}
-              </Button>
-            </>
+                {t('game.endReason')}: {autoStats.endReason}
+              </p>
+            </div>
           )}
         </div>
+
+        <details className="rounded-lg border border-border bg-card p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-foreground">
+            {t('game.serverSettings')}
+          </summary>
+          <div className="flex flex-col gap-2 pt-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">{t('game.serverPreset')}</span>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!layaBaseUrl.includes('11434') ? 'default' : 'outline'}
+                  className="h-7 flex-1 px-1 text-[11px]"
+                  onClick={() => handleApplyPreset(DEFAULT_LAYA_URL, '')}
+                >
+                  Laya
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={layaBaseUrl.includes('11434') ? 'default' : 'outline'}
+                  className="h-7 flex-1 px-1 text-[11px]"
+                  onClick={() => handleApplyPreset(DEFAULT_OLLAMA_URL, DEFAULT_TEV1_MODEL)}
+                >
+                  Ollama Tev1
+                </Button>
+              </div>
+            </div>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.layaUrl')}
+              <input
+                aria-label={t('game.layaUrl')}
+                type="url"
+                value={layaBaseUrl}
+                onChange={(e) => handleLayaUrlChange(e.target.value)}
+                placeholder={DEFAULT_LAYA_URL}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <span className="text-[11px] leading-relaxed">
+                {t('game.layaHint')}
+              </span>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.model')}
+              <input
+                aria-label={t('game.model')}
+                type="text"
+                value={layaModel}
+                onChange={(e) => handleModelChange(e.target.value)}
+                placeholder={layaBaseUrl.includes('11434') ? DEFAULT_TEV1_MODEL : 'auto'}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <span className="text-[11px] leading-relaxed">
+                {t('game.modelHint')}
+              </span>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              {t('game.minConfidence')}
+              <input
+                aria-label={t('game.minConfidence')}
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={minConfidence}
+                onChange={(e) => handleMinConfidenceChange(e.target.value)}
+                placeholder={t('game.minConfidenceOff')}
+                className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+              />
+              <span className="text-[11px] leading-relaxed">
+                {t('game.minConfidenceHint')}
+              </span>
+            </label>
+          </div>
+        </details>
 
         <div className="flex flex-col gap-2">
           {!benchRunning ? (
@@ -795,17 +986,19 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         </div>
       </div>
 
-      <LayaStatusPanel
-        running={autoRunning}
-        baseUrl={layaBaseUrl}
-        modelName={layaModel}
-        steps={autoCounters.steps}
-        decisions={autoCounters.decisions}
-        fallbacks={autoCounters.fallbacks}
-        avgLatencyMs={autoAvg.latencyMs}
-        avgConfidence={autoAvg.confidence}
-        monitor={layaMonitor}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <LayaStatusPanel
+          running={autoRunning}
+          baseUrl={layaBaseUrl}
+          modelName={layaModel}
+          steps={autoCounters.steps}
+          decisions={autoCounters.decisions}
+          fallbacks={autoCounters.fallbacks}
+          avgLatencyMs={autoAvg.latencyMs}
+          avgConfidence={autoAvg.confidence}
+          monitor={layaMonitor}
+        />
+      </div>
     </div>
   );
 }

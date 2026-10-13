@@ -219,6 +219,15 @@ const en: Dict = {
   'game.avgConfidence': 'Avg confidence',
   'game.noData': 'No data yet',
   'game.candidatesText': 'Candidate details',
+  'game.endReason': 'Stop reason',
+  'game.serverSettings': 'Server settings',
+  'game.record': 'Record',
+  'game.recording': 'Recording',
+  'game.stopRecord': 'Stop recording',
+  'game.downloadRecord': 'Save video',
+  'game.recordHint': 'Save the game board as a webm video',
+  'game.recordUnsupported': 'Recording is not supported here',
+  'game.recordSaved': 'Recording saved ({size})',
 
   'layaService.title': 'Laya / Ollama Service',
   'layaService.desc':
