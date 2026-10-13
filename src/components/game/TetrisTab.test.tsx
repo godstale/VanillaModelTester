@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 import { TetrisTab } from '@/components/game/TetrisTab';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 function setup() {
   const tab: WorkspaceTab = {
@@ -84,5 +89,68 @@ describe('TetrisTab', () => {
   it('offers board recording with a download path', () => {
     setup();
     screen.getByRole('button', { name: '녹화' });
+  });
+
+  it('saves the recording when the save button is pressed', async () => {
+    class FakeMediaRecorder {
+      static isTypeSupported = () => true;
+
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+
+      onstop: (() => void) | null = null;
+
+      onerror: (() => void) | null = null;
+
+      state = 'inactive';
+
+      mimeType = 'video/webm';
+
+      start() {
+        this.state = 'recording';
+      }
+
+      requestData() {}
+
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.(
+          new BlobEvent('dataavailable', {
+            data: new Blob(['frame'], { type: 'video/webm' }),
+          }),
+        );
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    const canvasProto = HTMLCanvasElement.prototype as HTMLCanvasElement & {
+      captureStream?: (fps?: number) => MediaStream;
+    };
+    const originalCaptureStream = canvasProto.captureStream;
+    canvasProto.captureStream = () =>
+      ({ getTracks: () => [] }) as unknown as MediaStream;
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = () => 'blob:fake-recording';
+    URL.revokeObjectURL = () => {};
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+    try {
+      setup();
+      fireEvent.click(screen.getByRole('button', { name: '녹화' }));
+      fireEvent.click(screen.getByRole('button', { name: '녹화 정지' }));
+
+      const saveButton = await screen.findByRole('button', {
+        name: /영상 저장/,
+      });
+      fireEvent.click(saveButton);
+
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+      expect(await screen.findByText(/녹화 저장됨/)).not.toBeNull();
+    } finally {
+      canvasProto.captureStream = originalCaptureStream;
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+    }
   });
 });
