@@ -227,6 +227,7 @@ const ko = {
   'game.recording': '녹화 중',
   'game.stopRecord': '녹화 정지',
   'game.downloadRecord': '영상 저장',
+  'game.savingRecord': '저장 중…',
   'game.recordHint': '게임 보드를 webm 영상으로 저장합니다',
   'game.recordUnsupported': '이 환경에서는 녹화를 지원하지 않습니다',
   'game.recordSaved': '녹화 저장됨 ({size})',

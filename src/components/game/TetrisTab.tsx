@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Circle, Download, Play, RotateCcw, Square } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import { Button } from '@/components/ui/button';
 import { BoardCanvas } from '@/components/game/BoardCanvas';
 import { LayaStatusPanel } from '@/components/game/LayaStatusPanel';
@@ -29,6 +31,7 @@ import {
   DEFAULT_OLLAMA_URL,
   DEFAULT_TEV1_MODEL,
 } from '@/lib/ai/layaHttpAgent';
+import { isTauriRuntime } from '@/lib/laya/serviceClient';
 import {
   isCanvasRecordingSupported,
   recordingFileName,
@@ -231,12 +234,15 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const boardCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const recorderRef = useRef<CanvasRecorderHandle | null>(null);
   const recordUrlRef = useRef<string | null>(null);
+  const recordBlobRef = useRef<Blob | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordElapsed, setRecordElapsed] = useState(0);
   const [recordUrl, setRecordUrl] = useState<string | null>(null);
   const [recordName, setRecordName] = useState<string | null>(null);
   const [recordSize, setRecordSize] = useState<number | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [recordSaving, setRecordSaving] = useState(false);
+  const [recordSaved, setRecordSaved] = useState<string | null>(null);
   const recordSupported =
     typeof window !== 'undefined' && isCanvasRecordingSupported();
 
@@ -662,8 +668,9 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   };
 
   // Board-only recording: captureStream on the game canvas, MediaRecorder to
-  // webm. The blob URL is offered as a download; Tauri has no binary file
-  // writer wired here, so the browser download path is the portable option.
+  // webm. Saving branches by runtime: browsers download the blob URL, while
+  // the Tauri desktop shell cannot download blob anchors, so it asks for a
+  // path via the native save dialog and writes the bytes through Rust.
   useEffect(() => {
     if (!recording) return;
     const started = Date.now();
@@ -692,9 +699,11 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         URL.revokeObjectURL(recordUrlRef.current);
         recordUrlRef.current = null;
       }
+      recordBlobRef.current = null;
       setRecordUrl(null);
       setRecordName(null);
       setRecordSize(null);
+      setRecordSaved(null);
       setRecordElapsed(0);
       recorderRef.current = startCanvasRecording(canvas, { fps: 30 });
       setRecording(true);
@@ -715,6 +724,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         setRecording(false);
         const url = URL.createObjectURL(blob);
         recordUrlRef.current = url;
+        recordBlobRef.current = blob;
         setRecordUrl(url);
         setRecordName(recordingFileName());
         setRecordSize(blob.size);
@@ -724,6 +734,55 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         setRecordError(err instanceof Error ? err.message : String(err));
       },
     );
+  };
+
+  // Blob anchors download fine in browsers but do nothing in the Tauri
+  // webview, so the desktop path goes through the native save dialog.
+  const handleRecordSave = () => {
+    const blob = recordBlobRef.current;
+    if (blob === null || recordName === null || recordSaving) return;
+    if (!isTauriRuntime()) {
+      const url = recordUrl ?? URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = recordName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      if (recordUrl === null) {
+        recordUrlRef.current = url;
+        setRecordUrl(url);
+      }
+      setRecordError(null);
+      setRecordSaved(t('game.recordSaved', { size: formatBytes(blob.size) }));
+      return;
+    }
+    setRecordSaving(true);
+    setRecordError(null);
+    void (async () => {
+      try {
+        const picked = await save({
+          defaultPath: recordName,
+          filters: [{ name: 'WebM video', extensions: ['webm'] }],
+        });
+        if (picked === null) return;
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = '';
+        const CHUNK = 0x8000;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+        }
+        const written = await invoke<number>('save_binary_file', {
+          path: picked,
+          contentsBase64: btoa(binary),
+        });
+        setRecordSaved(t('game.recordSaved', { size: formatBytes(written) }));
+      } catch (err) {
+        setRecordError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setRecordSaving(false);
+      }
+    })();
   };
 
   const formatElapsed = (totalSeconds: number) => {
@@ -803,15 +862,23 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             </p>
           )}
           {recordUrl !== null && recordName !== null && !recording && (
-            <a
-              href={recordUrl}
-              download={recordName}
-              className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              disabled={recordSaving}
+              onClick={handleRecordSave}
             >
               <Download className="h-3 w-3" />
-              {t('game.downloadRecord')}
-              {recordSize !== null ? ` (${formatBytes(recordSize)})` : ''}
-            </a>
+              {recordSaving
+                ? t('game.savingRecord')
+                : `${t('game.downloadRecord')}${recordSize !== null ? ` (${formatBytes(recordSize)})` : ''}`}
+            </Button>
+          )}
+          {recordSaved !== null && !recording && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {recordSaved}
+            </p>
           )}
         </div>
       </div>

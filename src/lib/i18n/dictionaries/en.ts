@@ -229,6 +229,7 @@ const en: Dict = {
   'game.recording': 'Recording',
   'game.stopRecord': 'Stop recording',
   'game.downloadRecord': 'Save video',
+  'game.savingRecord': 'Saving…',
   'game.recordHint': 'Save the game board as a webm video',
   'game.recordUnsupported': 'Recording is not supported here',
   'game.recordSaved': 'Recording saved ({size})',
