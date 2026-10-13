@@ -63,26 +63,56 @@ export async function fetchHealth(
   baseUrl: string,
   timeoutMs = 5000,
 ): Promise<unknown> {
-  // laya-serve sends no CORS headers, so the webview fetch is blocked even
-  // though the server answers 200. Go through the Rust side when available.
-  if (isTauriRuntime()) {
-    const res = await layaHttpGet(`${normalizeBaseUrl(baseUrl)}/health`, timeoutMs);
-    if (res.status !== 200) {
-      throw new Error(`HTTP ${res.status}`);
+  const normalized = normalizeBaseUrl(baseUrl);
+  const isLikelyOllama = normalized.includes('11434');
+
+  const probe = async (path: string): Promise<unknown> => {
+    const url = `${normalized}${path}`;
+    if (isTauriRuntime()) {
+      const res = await layaHttpGet(url, timeoutMs);
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      try {
+        return JSON.parse(res.body) as unknown;
+      } catch {
+        return { message: res.body.trim() };
+      }
     }
-    return JSON.parse(res.body) as unknown;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return { message: text.trim() };
+      }
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
+  if (isLikelyOllama) {
+    try {
+      return await probe('/api/tags');
+    } catch {
+      return await probe('/');
+    }
   }
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    const res = await fetch(`${normalizeBaseUrl(baseUrl)}/health`, {
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+    return await probe('/health');
+  } catch (err) {
+    // If /health 404s, try /api/tags or / in case an Ollama instance is configured on this port
+    try {
+      return await probe('/api/tags');
+    } catch {
+      throw err;
     }
-    return (await res.json()) as unknown;
-  } finally {
-    window.clearTimeout(timer);
   }
 }

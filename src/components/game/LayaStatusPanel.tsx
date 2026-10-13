@@ -4,6 +4,7 @@ import { useLanguage } from '@/lib/i18n/LanguageContext';
 export interface LayaStatusPanelProps {
   running: boolean;
   baseUrl: string;
+  modelName?: string;
   steps: number;
   decisions: number;
   fallbacks: number;
@@ -26,6 +27,7 @@ function Row({ label, value }: { label: string; value: string }) {
 export function LayaStatusPanel({
   running,
   baseUrl,
+  modelName,
   steps,
   decisions,
   fallbacks,
@@ -77,7 +79,16 @@ export function LayaStatusPanel({
             {t(statusKey)}
           </span>
         </div>
-        <Row label={t('game.laya')} value="laya" />
+        <Row
+          label={t('game.laya')}
+          value={
+            modelName?.trim()
+              ? modelName.trim()
+              : baseUrl.includes('11434')
+                ? 'tev1:4b'
+                : 'laya'
+          }
+        />
         <Row
           label={t('game.layaRunningState')}
           value={running ? t('game.layaRunning') : t('game.layaIdle')}

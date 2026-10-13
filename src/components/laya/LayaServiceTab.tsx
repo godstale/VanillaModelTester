@@ -240,6 +240,35 @@ export function LayaServiceTab({ tab }: LayaServiceTabProps) {
         </div>
 
         <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+          <span className="text-xs font-semibold text-foreground">
+            {t('layaService.preset')}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={port === '8000' ? 'default' : 'outline'}
+              className="flex-1 text-xs"
+              onClick={() => {
+                handleBaseUrlChange('http://127.0.0.1:8000');
+                handlePortChange('8000');
+              }}
+            >
+              {t('layaService.presetLaya')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={port === '11434' ? 'default' : 'outline'}
+              className="flex-1 text-xs"
+              onClick={() => {
+                handleBaseUrlChange('http://127.0.0.1:11434');
+                handlePortChange('11434');
+              }}
+            >
+              {t('layaService.presetOllama')}
+            </Button>
+          </div>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             {t('layaService.baseUrl')}
             <input

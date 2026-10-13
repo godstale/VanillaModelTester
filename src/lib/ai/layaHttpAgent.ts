@@ -12,11 +12,18 @@ import type {
 } from './types';
 
 export const DEFAULT_LAYA_URL = 'http://127.0.0.1:8000';
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+export const DEFAULT_TEV1_MODEL = 'tev1:4b';
+
+export type ServerType = 'laya' | 'ollama';
 
 export interface LayaHttpOptions {
+  serverType?: ServerType;
+  model?: string;
   timeoutMs?: number;
   minConfidence?: number;
   maxCandidates?: number;
+  dangerThreshold?: number;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -33,10 +40,10 @@ interface DangerReading {
   dangerConfidence: number | null;
 }
 
-// The `danger` noul answer is `{type:'noul', noul:boolean}` plus an optional
-// `confidence`. Tolerant: a missing or malformed answer means "unknown", never
-// a crash. Unknown server versions simply report null.
-function readDanger(data: unknown): DangerReading {
+// The `danger` noul answer is `{type:'noul', noul:boolean}` (Laya) or
+// `{type:'noul', noul:number}` (Ollama / Tev1 probability) plus an optional `confidence`.
+// Tolerant: a missing or malformed answer means "unknown", never a crash.
+function readDanger(data: unknown, dangerThreshold = 0.5): DangerReading {
   const none: DangerReading = { danger: null, dangerConfidence: null };
   if (!isRecord(data) || !isRecord(data['answers'])) {
     return none;
@@ -45,13 +52,16 @@ function readDanger(data: unknown): DangerReading {
   if (!isRecord(answer) || answer['type'] !== 'noul') {
     return none;
   }
-  if (typeof answer['noul'] !== 'boolean') {
+  const rawNoul = answer['noul'];
+  if (typeof rawNoul !== 'boolean' && typeof rawNoul !== 'number') {
     return none;
   }
+  const danger =
+    typeof rawNoul === 'boolean' ? rawNoul : rawNoul >= dangerThreshold;
   const rawConfidence = answer['confidence'];
   const fallbackConfidence = answer['answer_confidence'];
   return {
-    danger: answer['noul'],
+    danger,
     dangerConfidence:
       typeof rawConfidence === 'number'
         ? rawConfidence
@@ -67,6 +77,7 @@ function toDecision(
   stateText: string,
   candidatesText: string,
   started: number,
+  dangerThreshold?: number,
 ): MoveDecision {
   if (!isRecord(data) || !isRecord(data['answers'])) {
     throw new Error('laya: missing answers in response');
@@ -80,10 +91,12 @@ function toDecision(
     throw new Error(`laya: unknown choice ${choice}`);
   }
   const confidence =
-    typeof place['answer_confidence'] === 'number'
-      ? place['answer_confidence']
-      : 0;
-  const { danger, dangerConfidence } = readDanger(data);
+    typeof place['confidence'] === 'number'
+      ? place['confidence']
+      : typeof place['answer_confidence'] === 'number'
+        ? place['answer_confidence']
+        : 0;
+  const { danger, dangerConfidence } = readDanger(data, dangerThreshold);
   // A lost position is not played out: stopping keeps the log honest instead
   // of recording moves from a position the model itself judged doomed.
   const abstained = place['abstention'] === 'abstained' || danger === true;
@@ -103,8 +116,10 @@ export function createLayaHttpAgent(
   const timeoutMs = opts.timeoutMs ?? 10000;
   const maxCandidates = opts.maxCandidates ?? 8;
   const minConfidence = opts.minConfidence;
+  const dangerThreshold = opts.dangerThreshold ?? 0.5;
+  const model = opts.model ?? (opts.serverType === 'ollama' ? DEFAULT_TEV1_MODEL : undefined);
   return {
-    name: 'laya',
+    name: opts.serverType === 'ollama' ? 'ollama-tev1' : 'laya',
     async decide(snap: BoardSnapshot, cands: CandidateMove[]) {
       const start = performance.now();
       const { stateText, questions, kept } = encodePlacementRequest(
@@ -119,6 +134,9 @@ export function createLayaHttpAgent(
         state: { board: stateText },
         questions,
       };
+      if (model) {
+        body['model'] = model;
+      }
       if (minConfidence !== undefined) {
         body['min_confidence'] = minConfidence;
       }
@@ -135,7 +153,7 @@ export function createLayaHttpAgent(
           throw new Error(`laya: HTTP ${res.status}`);
         }
         const data: unknown = JSON.parse(res.body);
-        return toDecision(data, kept, stateText, candidatesText, start);
+        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold);
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -150,7 +168,7 @@ export function createLayaHttpAgent(
           throw new Error(`laya: HTTP ${res.status}`);
         }
         const data: unknown = await res.json();
-        return toDecision(data, kept, stateText, candidatesText, start);
+        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold);
       } finally {
         clearTimeout(timer);
       }

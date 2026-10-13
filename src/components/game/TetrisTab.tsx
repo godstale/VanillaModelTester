@@ -23,7 +23,12 @@ import {
   recordEpisode,
   recordSteps,
 } from '@/lib/db/repositories/simRepo';
-import { createLayaHttpAgent, DEFAULT_LAYA_URL } from '@/lib/ai/layaHttpAgent';
+import {
+  createLayaHttpAgent,
+  DEFAULT_LAYA_URL,
+  DEFAULT_OLLAMA_URL,
+  DEFAULT_TEV1_MODEL,
+} from '@/lib/ai/layaHttpAgent';
 import type { DecisionAgent } from '@/lib/ai/types';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -50,8 +55,17 @@ function freshSeed(): number {
 type AutoSpeed = '1x' | '10x' | 'max';
 
 const LAYA_BASE_URL_KEY = 'laya.baseUrl';
+const LAYA_MODEL_KEY = 'laya.model';
 const LAYA_MIN_CONFIDENCE_KEY = 'laya.minConfidence';
 const LAYA_DEFAULT_MAX_STEPS = 300;
+
+function readLayaModel(): string {
+  try {
+    return localStorage.getItem(LAYA_MODEL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
 
 function readLayaMinConfidence(): string {
   try {
@@ -164,6 +178,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   } | null>(null);
   const [maxSteps, setMaxSteps] = useState(LAYA_DEFAULT_MAX_STEPS);
   const [layaBaseUrl, setLayaBaseUrl] = useState(readLayaBaseUrl);
+  const [layaModel, setLayaModel] = useState(readLayaModel);
   const [minConfidence, setMinConfidence] = useState(readLayaMinConfidence);
   const simRef = useRef<Simulator | null>(null);
   const runRef = useRef<{ seed: number; steps: StepRecord[] }>({
@@ -295,11 +310,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
   const buildMonitoredAgent = (
     baseUrl: string,
     minConf: number | undefined,
+    modelName: string,
   ): DecisionAgent => {
-    const inner =
-      minConf === undefined
-        ? createLayaHttpAgent(baseUrl)
-        : createLayaHttpAgent(baseUrl, { minConfidence: minConf });
+    const isOllama = baseUrl.includes('11434');
+    const effectiveModel =
+      modelName.trim().length > 0
+        ? modelName.trim()
+        : isOllama
+          ? DEFAULT_TEV1_MODEL
+          : undefined;
+    const inner = createLayaHttpAgent(baseUrl, {
+      serverType: isOllama ? 'ollama' : 'laya',
+      model: effectiveModel,
+      minConfidence: minConf,
+    });
     return {
       name: inner.name,
       decide: async (snap, cands) => {
@@ -348,13 +372,14 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     stepsLimit: number = maxSteps,
     baseUrl: string = layaBaseUrl,
     minConf: number | undefined = parseMinConfidence(minConfidence),
+    modelName: string = layaModel,
   ) => {
     genRef.current += 1;
     busyRef.current = false;
     autoStartRef.current = Date.now();
     const collected: StepRecord[] = [];
     const sim = new Simulator(
-      buildMonitoredAgent(baseUrl, minConf),
+      buildMonitoredAgent(baseUrl, minConf, modelName),
       seed,
       { maxSteps: stepsLimit },
       undefined,
@@ -391,11 +416,41 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       // Private-mode storage may throw; the session value still applies.
     }
     if (value.trim().length > 0) {
-      setupAutoSim(freshSeed(), maxSteps, value);
+      setupAutoSim(freshSeed(), maxSteps, value, parseMinConfidence(minConfidence), layaModel);
       if (autoRunning) {
         autoStartRef.current = Date.now();
         setAutoRunning(true);
       }
+    }
+  };
+
+  const handleModelChange = (value: string) => {
+    setLayaModel(value);
+    try {
+      localStorage.setItem(LAYA_MODEL_KEY, value);
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    setupAutoSim(freshSeed(), maxSteps, layaBaseUrl, parseMinConfidence(minConfidence), value);
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
+    }
+  };
+
+  const handleApplyPreset = (presetUrl: string, defaultMod: string) => {
+    setLayaBaseUrl(presetUrl);
+    setLayaModel(defaultMod);
+    try {
+      localStorage.setItem(LAYA_BASE_URL_KEY, presetUrl);
+      localStorage.setItem(LAYA_MODEL_KEY, defaultMod);
+    } catch {
+      // Private-mode storage may throw; the session value still applies.
+    }
+    setupAutoSim(freshSeed(), maxSteps, presetUrl, parseMinConfidence(minConfidence), defaultMod);
+    if (autoRunning) {
+      autoStartRef.current = Date.now();
+      setAutoRunning(true);
     }
   };
 
@@ -406,7 +461,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     } catch {
       // Private-mode storage may throw; the session value still applies.
     }
-    setupAutoSim(freshSeed(), maxSteps, layaBaseUrl, parseMinConfidence(value));
+    setupAutoSim(freshSeed(), maxSteps, layaBaseUrl, parseMinConfidence(value), layaModel);
     if (autoRunning) {
       autoStartRef.current = Date.now();
       setAutoRunning(true);
@@ -436,11 +491,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
     setBenchProgress({ done: 0, total: BENCH_EPISODES });
     try {
       const minConf = parseMinConfidence(minConfidence);
+      const isOllama = layaBaseUrl.includes('11434');
+      const effectiveModel =
+        layaModel.trim().length > 0
+          ? layaModel.trim()
+          : isOllama
+            ? DEFAULT_TEV1_MODEL
+            : undefined;
       const { summary } = await runHeadless(
         () =>
-          minConf === undefined
-            ? createLayaHttpAgent(layaBaseUrl)
-            : createLayaHttpAgent(layaBaseUrl, { minConfidence: minConf }),
+          createLayaHttpAgent(layaBaseUrl, {
+            serverType: isOllama ? 'ollama' : 'laya',
+            model: effectiveModel,
+            minConfidence: minConf,
+          }),
         {
           episodes: BENCH_EPISODES,
           baseSeed: BENCH_BASE_SEED,
@@ -521,6 +585,29 @@ export function TetrisTab({ tab }: TetrisTabProps) {
         </div>
 
         <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">{t('game.serverPreset')}</span>
+            <div className="flex gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={!layaBaseUrl.includes('11434') ? 'default' : 'outline'}
+                className="h-7 flex-1 px-1 text-[11px]"
+                onClick={() => handleApplyPreset(DEFAULT_LAYA_URL, '')}
+              >
+                Laya
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={layaBaseUrl.includes('11434') ? 'default' : 'outline'}
+                className="h-7 flex-1 px-1 text-[11px]"
+                onClick={() => handleApplyPreset(DEFAULT_OLLAMA_URL, DEFAULT_TEV1_MODEL)}
+              >
+                Ollama Tev1
+              </Button>
+            </div>
+          </div>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             {t('game.layaUrl')}
             <input
@@ -533,6 +620,20 @@ export function TetrisTab({ tab }: TetrisTabProps) {
             />
             <span className="text-[11px] leading-relaxed">
               {t('game.layaHint')}
+            </span>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t('game.model')}
+            <input
+              aria-label={t('game.model')}
+              type="text"
+              value={layaModel}
+              onChange={(e) => handleModelChange(e.target.value)}
+              placeholder={layaBaseUrl.includes('11434') ? DEFAULT_TEV1_MODEL : 'auto'}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+            />
+            <span className="text-[11px] leading-relaxed">
+              {t('game.modelHint')}
             </span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -697,6 +798,7 @@ export function TetrisTab({ tab }: TetrisTabProps) {
       <LayaStatusPanel
         running={autoRunning}
         baseUrl={layaBaseUrl}
+        modelName={layaModel}
         steps={autoCounters.steps}
         decisions={autoCounters.decisions}
         fallbacks={autoCounters.fallbacks}

@@ -253,4 +253,43 @@ describe('createLayaHttpAgent', () => {
       /unknown choice/,
     );
   });
+
+  it('supports ollama tev1 model and serverType with probability danger score', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    const fetchMock = vi.fn(
+      (...args: [string, RequestInit?]): Promise<unknown> => {
+        void args;
+        return Promise.resolve(
+          okPayload({
+            model: 'tev1:4b',
+            answers: {
+              place: { choice: topId, confidence: 0.92 },
+              danger: { type: 'noul', noul: 0.85 },
+            },
+          }),
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = createLayaHttpAgent('http://127.0.0.1:11434', {
+      serverType: 'ollama',
+      model: 'tev1:4b',
+    });
+    expect(agent.name).toBe('ollama-tev1');
+
+    const decision = await agent.decide(snap, cands);
+    expect(decision.moveId).toBe(topId);
+    expect(decision.confidence).toBe(0.92);
+    expect(decision.abstained).toBe(true); // 0.85 >= default 0.5 threshold
+    expect((decision.raw as { danger: boolean | null }).danger).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      fetchMock.mock.calls[0]?.[1]?.body as string,
+    ) as Record<string, unknown>;
+    expect(body['model']).toBe('tev1:4b');
+  });
 });
