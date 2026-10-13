@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 import type { ActivePiece, Board, PieceKind, RotationState } from '@/lib/tetris/types';
 import { COLS, ROWS, cellFor, cellsOf } from '@/lib/tetris/constants';
 
 export interface BoardCanvasProps {
   board: Board;
   active: ActivePiece | null;
+  canvasRef?: RefObject<HTMLCanvasElement | null>;
 }
 
 export const CELL_PX = 24;
@@ -63,8 +65,9 @@ function paintCell(
   ctx.globalAlpha = 1;
 }
 
-export function BoardCanvas({ board, active }: BoardCanvasProps) {
-  const ref = useRef<HTMLCanvasElement>(null);
+export function BoardCanvas({ board, active, canvasRef }: BoardCanvasProps) {
+  const fallbackRef = useRef<HTMLCanvasElement>(null);
+  const ref = canvasRef ?? fallbackRef;
 
   // Redraw after every render: the engine may reuse board array identity,
   // so snapshot changes cannot rely on reference comparison alone.
