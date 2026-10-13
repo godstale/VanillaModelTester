@@ -24,6 +24,11 @@ export interface LayaHttpOptions {
   minConfidence?: number;
   maxCandidates?: number;
   dangerThreshold?: number;
+  /** When false (default), a danger=true signal is only recorded in
+   *  decision.raw and the episode plays on. When true, danger=true
+   *  abstains and ends the episode. Tev1 fires danger far too early
+   *  (step 4 on an empty board), so gating stays opt-in. */
+  stopOnDanger?: boolean;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -78,6 +83,7 @@ function toDecision(
   candidatesText: string,
   started: number,
   dangerThreshold?: number,
+  stopOnDanger?: boolean,
 ): MoveDecision {
   if (!isRecord(data) || !isRecord(data['answers'])) {
     throw new Error('laya: missing answers in response');
@@ -97,10 +103,13 @@ function toDecision(
         ? place['answer_confidence']
         : 0;
   const { danger, dangerConfidence } = readDanger(data, dangerThreshold);
-  // A lost position is not played out: stopping keeps the log honest instead
-  // of recording moves from a position the model itself judged doomed.
+  // Danger is advisory by default: it is recorded in raw (and shown in the
+  // monitor) but only stops the episode when stopOnDanger is opted in.
+  // Stopping on every danger keeps the log honest but Tev1 judged an empty
+  // board doomed at step 4, which makes testing unplayable.
   const abstention = isRecord(place) ? place['abstention'] : undefined;
-  const abstained = abstention === 'abstained' || danger === true;
+  const abstained =
+    abstention === 'abstained' || (stopOnDanger === true && danger === true);
   return {
     moveId: choice,
     confidence,
@@ -118,6 +127,7 @@ export function createLayaHttpAgent(
   const maxCandidates = opts.maxCandidates ?? 8;
   const minConfidence = opts.minConfidence;
   const dangerThreshold = opts.dangerThreshold ?? 0.5;
+  const stopOnDanger = opts.stopOnDanger ?? false;
   const model = opts.model ?? (opts.serverType === 'ollama' ? DEFAULT_TEV1_MODEL : undefined);
   return {
     name: opts.serverType === 'ollama' ? 'ollama-tev1' : 'laya',
@@ -154,7 +164,7 @@ export function createLayaHttpAgent(
           throw new Error(`laya: HTTP ${res.status}`);
         }
         const data: unknown = JSON.parse(res.body);
-        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold);
+        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold, stopOnDanger);
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -169,7 +179,7 @@ export function createLayaHttpAgent(
           throw new Error(`laya: HTTP ${res.status}`);
         }
         const data: unknown = await res.json();
-        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold);
+        return toDecision(data, kept, stateText, candidatesText, start, dangerThreshold, stopOnDanger);
       } finally {
         clearTimeout(timer);
       }

@@ -159,7 +159,7 @@ describe('createLayaHttpAgent', () => {
     ).rejects.toThrow();
   });
 
-  it('abstains when danger reports a lost position', async () => {
+  it('records danger without abstaining by default', async () => {
     const { snap, active } = fixture();
     const cands = enumerateCandidates(snap.board, active);
     const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
@@ -177,6 +177,32 @@ describe('createLayaHttpAgent', () => {
       ),
     );
     const d = await createLayaHttpAgent().decide(snap, cands);
+    expect(d.abstained).toBe(false);
+    const raw = d.raw as { danger: boolean | null; dangerConfidence: number | null };
+    expect(raw.danger).toBe(true);
+    expect(raw.dangerConfidence).toBe(0.7);
+  });
+
+  it('abstains on danger only when stopOnDanger is set', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okPayload({
+            answers: {
+              place: { choice: topId, answer_confidence: 0.9 },
+              danger: { type: 'noul', noul: true, confidence: 0.7 },
+            },
+          }),
+        ),
+      ),
+    );
+    const d = await createLayaHttpAgent('http://127.0.0.1:8000', {
+      stopOnDanger: true,
+    }).decide(snap, cands);
     expect(d.abstained).toBe(true);
     const raw = d.raw as { danger: boolean | null; dangerConfidence: number | null };
     expect(raw.danger).toBe(true);
@@ -230,7 +256,9 @@ describe('createLayaHttpAgent', () => {
           ),
         ),
       );
-      const d = await createLayaHttpAgent().decide(snap, cands);
+      const d = await createLayaHttpAgent('http://127.0.0.1:8000', {
+        stopOnDanger: true,
+      }).decide(snap, cands);
       expect(d.abstained).toBe(false);
       expect(
         (d.raw as { danger: boolean | null }).danger,
@@ -277,6 +305,7 @@ describe('createLayaHttpAgent', () => {
     const agent = createLayaHttpAgent('http://127.0.0.1:11434', {
       serverType: 'ollama',
       model: 'tev1:4b',
+      stopOnDanger: true,
     });
     expect(agent.name).toBe('ollama-tev1');
 
@@ -291,5 +320,41 @@ describe('createLayaHttpAgent', () => {
       fetchMock.mock.calls[0]?.[1]?.body as string,
     ) as Record<string, unknown>;
     expect(body['model']).toBe('tev1:4b');
+  });
+
+  it('honors a custom danger threshold for tev1 probabilities', async () => {
+    const { snap, active } = fixture();
+    const cands = enumerateCandidates(snap.board, active);
+    const topId = encodePlacementRequest(snap, cands, 8).kept[0]?.id;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          okPayload({
+            answers: {
+              place: { choice: topId, confidence: 0.9 },
+              danger: { type: 'noul', noul: 0.4 },
+            },
+          }),
+        ),
+      ),
+    );
+    // 0.4 < 0.5 default: not danger, plays on even with stopOnDanger.
+    const low = await createLayaHttpAgent('http://127.0.0.1:11434', {
+      serverType: 'ollama',
+      model: 'tev1:4b',
+      stopOnDanger: true,
+    }).decide(snap, cands);
+    expect(low.abstained).toBe(false);
+    expect((low.raw as { danger: boolean | null }).danger).toBe(false);
+    // 0.4 >= 0.3 custom threshold: danger, stops with stopOnDanger.
+    const high = await createLayaHttpAgent('http://127.0.0.1:11434', {
+      serverType: 'ollama',
+      model: 'tev1:4b',
+      stopOnDanger: true,
+      dangerThreshold: 0.3,
+    }).decide(snap, cands);
+    expect(high.abstained).toBe(true);
+    expect((high.raw as { danger: boolean | null }).danger).toBe(true);
   });
 });

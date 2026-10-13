@@ -169,6 +169,18 @@ export class Simulator {
     if (asked.kind === 'placed' && this.applyPlacement(asked.placed.target)) {
       this.recordDecision(asked.placed);
       this.stepIndex += 1;
+      // Danger is advisory unless the agent abstained on it: note the signal
+      // so a played-through danger stays visible in the log.
+      const playedRaw = asked.placed.decision.raw as
+        | { danger?: unknown }
+        | undefined;
+      if (playedRaw?.danger === true) {
+        console.info(
+          `[sim] danger signal played through at step ${this.stepIndex - 1}` +
+            ` (choice=${asked.placed.decision.moveId}`,
+          `confidence=${asked.placed.decision.confidence})`,
+        );
+      }
       return 'progress';
     }
     // Laya-only: a throw, timeout, or abstention ends the episode instead of
